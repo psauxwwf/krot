@@ -1,0 +1,10 @@
+# opensrc - source code for packages
+opensrc/
+/bin/krot
+/in.txt
+/out.txt
+/krot.json
+/android-ndk-r27
+/bin
+/all_proxies.txt
+/vless_universal.txt
