@@ -3,9 +3,6 @@ package vless
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,36 +11,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"golang.org/x/net/proxy"
 
-	xnet "github.com/xtls/xray-core/common/net"
-	"github.com/xtls/xray-core/common/protocol"
+	checkermodels "github.com/kutovoys/xray-checker/models"
+	checkerxray "github.com/kutovoys/xray-checker/xray"
+
 	xuuid "github.com/xtls/xray-core/common/uuid"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf/serial"
+	_ "github.com/xtls/xray-core/main/distro/all"
 	xvless "github.com/xtls/xray-core/proxy/vless"
-	"github.com/xtls/xray-core/proxy/vless/encoding"
-	xreality "github.com/xtls/xray-core/transport/internet/reality"
-	xraytls "github.com/xtls/xray-core/transport/internet/tls"
 )
 
-const defaultTimeout = 30 * time.Second
+const (
+	probeURL1     = "https://cp.cloudflare.com/generate_204"
+	probeURL2     = "https://www.gstatic.com/generate_204"
+	localBindAddr = "127.0.0.1"
+)
 
 type config struct {
-	uuid      xuuid.UUID
-	host      string
-	port      int
-	network   string
-	wsPath    string
-	wsHost    string
-	security  string
-	sni       string
-	flow      string
-	fp        string
-	publicKey string
-	shortID   string
-}
-
-func Check(uri string) error {
-	return CheckWithTimeout(uri, defaultTimeout)
+	proxy *checkermodels.ProxyConfig
 }
 
 func CheckWithTimeout(rawURI string, timeout time.Duration) error {
@@ -56,226 +43,177 @@ func CheckWithTimeout(rawURI string, timeout time.Duration) error {
 		return err
 	}
 
-	if cfg.network == "ws" {
-		return checkWS(cfg, timeout)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	dialer := &net.Dialer{Timeout: timeout}
-	addr := net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port))
-	baseConn, err := dialer.DialContext(ctx, "tcp", addr)
+	port, err := getFreeTCPPort()
 	if err != nil {
-		return fmt.Errorf("dial %s failed: %w", addr, err)
+		return fmt.Errorf("reserve local socks port: %w", err)
 	}
-	defer baseConn.Close()
 
-	_ = baseConn.SetDeadline(time.Now().Add(timeout))
-
-	securedConn, err := secureConn(ctx, baseConn, cfg)
+	xrayInstance, err := startXray(ctx, cfg, port)
 	if err != nil {
 		return err
 	}
+	defer xrayInstance.Close()
 
-	if err := sendVLESSProbe(securedConn, cfg); err != nil {
+	if err := waitForSOCKS(ctx, port); err != nil {
+		return err
+	}
+
+	if err := probeThroughSOCKS(ctx, timeout, port); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func secureConn(ctx context.Context, conn net.Conn, cfg config) (net.Conn, error) {
-	switch cfg.security {
-	case "", "none":
-		return conn, nil
-	case "tls":
-		tlsConn := tls.Client(conn, &tls.Config{
-			ServerName:         cfg.sni,
-			InsecureSkipVerify: true,
-			MinVersion:         tls.VersionTLS12,
-		})
-		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			return nil, fmt.Errorf("tls handshake failed: %w", err)
-		}
-		return tlsConn, nil
-	case "reality":
-		if cfg.publicKey == "" {
-			return nil, fmt.Errorf("public key (pbk) is required for reality")
-		}
+func startXray(ctx context.Context, cfg config, socksPort int) (*core.Instance, error) {
+	configBytes, err := buildXrayConfig(cfg, socksPort)
+	if err != nil {
+		return nil, err
+	}
 
-		fingerprint := strings.ToLower(strings.TrimSpace(cfg.fp))
-		if fingerprint == "" {
-			fingerprint = "chrome"
-		}
-		if xraytls.GetFingerprint(fingerprint) == nil {
-			return nil, fmt.Errorf("unknown reality fingerprint %q", cfg.fp)
-		}
+	xrayConfig, err := serial.DecodeJSONConfig(bytes.NewReader(configBytes))
+	if err != nil {
+		return nil, fmt.Errorf("decode xray config: %w", err)
+	}
 
-		publicKey, err := base64.RawURLEncoding.DecodeString(cfg.publicKey)
-		if err != nil || len(publicKey) != 32 {
-			return nil, fmt.Errorf("invalid reality public key")
-		}
+	coreConfig, err := xrayConfig.Build()
+	if err != nil {
+		return nil, fmt.Errorf("build xray config: %w", err)
+	}
 
-		if len(cfg.shortID) > 16 {
-			return nil, fmt.Errorf("invalid reality short id: too long")
-		}
-		shortID := make([]byte, 8)
-		if _, err := hex.Decode(shortID, []byte(cfg.shortID)); err != nil {
-			return nil, fmt.Errorf("invalid reality short id: %w", err)
-		}
+	instance, err := core.New(coreConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create xray instance: %w", err)
+	}
 
-		port, err := xnet.PortFromInt(uint32(cfg.port))
+	started := make(chan error, 1)
+	go func() {
+		started <- instance.Start()
+	}()
+
+	select {
+	case err := <-started:
 		if err != nil {
-			return nil, fmt.Errorf("invalid port: %w", err)
+			_ = instance.Close()
+			return nil, fmt.Errorf("start xray instance: %w", err)
 		}
+		return instance, nil
+	case <-ctx.Done():
+		_ = instance.Close()
+		return nil, fmt.Errorf("start xray instance: %w", ctx.Err())
+	}
+}
 
-		realityConn, err := xreality.UClient(conn, &xreality.Config{
-			Fingerprint: fingerprint,
-			ServerName:  cfg.sni,
-			PublicKey:   publicKey,
-			ShortId:     shortID,
-		}, ctx, xnet.TCPDestination(xnet.ParseAddress(cfg.host), port))
+func buildXrayConfig(cfg config, socksPort int) ([]byte, error) {
+	proxyConfig := *cfg.proxy
+	proxyConfig.Index = 0
+
+	generator := checkerxray.NewConfigGenerator()
+	configBytes, err := generator.GenerateConfig([]*checkermodels.ProxyConfig{&proxyConfig}, socksPort, "none")
+	if err != nil {
+		return nil, fmt.Errorf("generate xray config: %w", err)
+	}
+
+	return configBytes, nil
+}
+
+func probeThroughSOCKS(ctx context.Context, timeout time.Duration, socksPort int) error {
+	dialer, err := proxy.SOCKS5("tcp", net.JoinHostPort(localBindAddr, strconv.Itoa(socksPort)), nil, &net.Dialer{Timeout: timeout})
+	if err != nil {
+		return fmt.Errorf("create socks dialer: %w", err)
+	}
+
+	httpTransport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			type contextDialer interface {
+				DialContext(context.Context, string, string) (net.Conn, error)
+			}
+			if d, ok := dialer.(contextDialer); ok {
+				return d.DialContext(ctx, network, addr)
+			}
+			return dialer.Dial(network, addr)
+		},
+		ForceAttemptHTTP2:     true,
+		DisableKeepAlives:     true,
+		TLSHandshakeTimeout:   timeout,
+		ResponseHeaderTimeout: timeout,
+	}
+
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: httpTransport,
+	}
+
+	var errs []string
+	for _, probeURL := range []string{probeURL1, probeURL2} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("reality handshake failed: %w", err)
+			return fmt.Errorf("build probe request: %w", err)
 		}
 
-		return realityConn, nil
-	default:
-		return nil, fmt.Errorf("unsupported security mode %q", cfg.security)
+		resp, err := client.Do(req)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", probeURL, err))
+			if ctx.Err() != nil {
+				break
+			}
+			continue
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+			return nil
+		}
+
+		errs = append(errs, fmt.Sprintf("%s: unexpected status %d", probeURL, resp.StatusCode))
 	}
+
+	if ctx.Err() != nil {
+		return fmt.Errorf("probe through xray: %w", ctx.Err())
+	}
+
+	return fmt.Errorf("probe through xray failed: %s", strings.Join(errs, "; "))
 }
 
-func sendVLESSProbe(conn net.Conn, cfg config) error {
-	request, req, err := buildVLESSRequest(cfg)
-	if err != nil {
-		return err
-	}
+func waitForSOCKS(ctx context.Context, port int) error {
+	addr := net.JoinHostPort(localBindAddr, strconv.Itoa(port))
+	var lastErr error
 
-	if _, err := conn.Write(request); err != nil {
-		return fmt.Errorf("send vless request failed: %w", err)
-	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 
-	if _, err := encoding.DecodeResponseHeader(conn, req); err != nil {
-		return fmt.Errorf("read vless response failed: %w", err)
-	}
+	for {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = err
 
-	return nil
-}
-
-func checkWS(cfg config, timeout time.Duration) error {
-	wsScheme := "ws"
-	if cfg.security == "tls" {
-		wsScheme = "wss"
-	}
-	if cfg.security != "none" && cfg.security != "tls" {
-		return fmt.Errorf("unsupported ws security mode %q", cfg.security)
-	}
-
-	path := cfg.wsPath
-	if path == "" {
-		path = "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-
-	u := url.URL{
-		Scheme: wsScheme,
-		Host:   net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port)),
-		Path:   path,
-	}
-
-	headers := http.Header{}
-	if cfg.wsHost != "" {
-		headers.Set("Host", cfg.wsHost)
-	}
-
-	dialer := websocket.Dialer{HandshakeTimeout: timeout}
-	if wsScheme == "wss" {
-		dialer.TLSClientConfig = &tls.Config{
-			ServerName:         cfg.sni,
-			InsecureSkipVerify: true,
-			MinVersion:         tls.VersionTLS12,
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for local socks listener %s: %w (last error: %v)", addr, ctx.Err(), lastErr)
+		case <-ticker.C:
 		}
 	}
-
-	conn, _, err := dialer.Dial(u.String(), headers)
-	if err != nil {
-		return fmt.Errorf("websocket dial failed: %w", err)
-	}
-	defer conn.Close()
-
-	request, req, err := buildVLESSRequest(cfg)
-	if err != nil {
-		return err
-	}
-
-	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-		return fmt.Errorf("set ws write deadline failed: %w", err)
-	}
-	if err := conn.WriteMessage(websocket.BinaryMessage, request); err != nil {
-		return fmt.Errorf("send vless over websocket failed: %w", err)
-	}
-
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		return fmt.Errorf("set ws read deadline failed: %w", err)
-	}
-	msgType, data, err := conn.ReadMessage()
-	if err != nil {
-		return fmt.Errorf("read websocket response failed: %w", err)
-	}
-	if msgType != websocket.BinaryMessage {
-		return fmt.Errorf("unexpected websocket message type %d", msgType)
-	}
-
-	if _, err := encoding.DecodeResponseHeader(bytes.NewReader(data), req); err != nil {
-		return fmt.Errorf("read vless response failed: %w", err)
-	}
-
-	return nil
 }
 
-func buildVLESSRequest(cfg config) ([]byte, *protocol.RequestHeader, error) {
-	account := &xvless.MemoryAccount{
-		ID:         protocol.NewID(cfg.uuid),
-		Flow:       cfg.flow,
-		Encryption: "none",
-	}
-
-	targetHost := cfg.sni
-	if targetHost == "" {
-		targetHost = "www.cloudflare.com"
-	}
-
-	targetPort, err := xnet.PortFromInt(443)
+func getFreeTCPPort() (int, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(localBindAddr, "0"))
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid probe port: %w", err)
+		return 0, err
+	}
+	defer listener.Close()
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("unexpected listener address type %T", listener.Addr())
 	}
 
-	req := requestHeader(cfg)
-	req.Address = xnet.ParseAddress(targetHost)
-	req.Port = targetPort
-	req.User = &protocol.MemoryUser{Account: account}
-
-	addons := &encoding.Addons{}
-	if cfg.flow == xvless.XRV {
-		addons.Flow = xvless.XRV
-	}
-
-	var buf bytes.Buffer
-	if err := encoding.EncodeRequestHeader(&buf, req, addons); err != nil {
-		return nil, nil, fmt.Errorf("encode vless request failed: %w", err)
-	}
-
-	return buf.Bytes(), req, nil
-}
-
-func requestHeader(_ config) *protocol.RequestHeader {
-	return &protocol.RequestHeader{
-		Version: encoding.Version,
-		Command: protocol.RequestCommandTCP,
-	}
+	return addr.Port, nil
 }
 
 func parse(rawURI string) (config, error) {
@@ -286,13 +224,12 @@ func parse(rawURI string) (config, error) {
 	if !strings.EqualFold(u.Scheme, "vless") {
 		return config{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
 	}
-
 	if u.User == nil {
 		return config{}, fmt.Errorf("vless uuid is required")
 	}
 
-	userID, err := xuuid.ParseString(strings.TrimSpace(u.User.Username()))
-	if err != nil {
+	userID := strings.TrimSpace(u.User.Username())
+	if _, err := xuuid.ParseString(userID); err != nil {
 		return config{}, fmt.Errorf("invalid vless uuid: %w", err)
 	}
 
@@ -306,46 +243,177 @@ func parse(rawURI string) (config, error) {
 		return config{}, fmt.Errorf("invalid vless port")
 	}
 
-	q := u.Query()
-	if encryption := strings.TrimSpace(q.Get("encryption")); encryption != "" && encryption != "none" {
+	query := u.Query()
+	encryption := strings.ToLower(strings.TrimSpace(query.Get("encryption")))
+	if encryption == "" {
+		encryption = "none"
+	}
+	if encryption != "none" {
 		return config{}, fmt.Errorf("unsupported vless encryption %q", encryption)
 	}
 
-	network := strings.ToLower(strings.TrimSpace(q.Get("type")))
+	network := strings.ToLower(strings.TrimSpace(firstNonEmpty(query.Get("type"), query.Get("net"))))
 	if network == "" {
 		network = "tcp"
 	}
-	if network != "tcp" && network != "ws" {
+	if network == "raw" {
+		network = "tcp"
+	}
+	if !isSupportedNetwork(network) {
 		return config{}, fmt.Errorf("unsupported network type %q", network)
 	}
 
-	security := strings.ToLower(strings.TrimSpace(q.Get("security")))
+	security := strings.ToLower(strings.TrimSpace(query.Get("security")))
 	if security == "" {
 		security = "none"
 	}
+	if !isSupportedSecurity(security) {
+		return config{}, fmt.Errorf("unsupported security mode %q", security)
+	}
 
-	sni := strings.TrimSpace(q.Get("sni"))
-	if sni == "" {
+	sni := firstNonEmpty(query.Get("sni"), query.Get("serverName"), query.Get("peer"))
+	if sni == "" && security != "none" {
 		sni = host
 	}
 
-	flow := strings.TrimSpace(q.Get("flow"))
+	flow := strings.TrimSpace(query.Get("flow"))
 	if flow != "" && flow != xvless.XRV {
 		return config{}, fmt.Errorf("unsupported flow %q", flow)
 	}
 
-	return config{
-		uuid:      userID,
-		host:      host,
-		port:      port,
-		network:   network,
-		wsPath:    strings.TrimSpace(q.Get("path")),
-		wsHost:    strings.TrimSpace(q.Get("host")),
-		security:  security,
-		sni:       sni,
-		flow:      flow,
-		fp:        strings.TrimSpace(q.Get("fp")),
-		publicKey: strings.TrimSpace(q.Get("pbk")),
-		shortID:   strings.TrimSpace(q.Get("sid")),
-	}, nil
+	fingerprint := firstNonEmpty(query.Get("fp"), query.Get("fingerprint"), query.Get("client-fingerprint"))
+	if security == "reality" && fingerprint == "" {
+		fingerprint = "chrome"
+	}
+
+	publicKey := firstNonEmpty(query.Get("pbk"), query.Get("publicKey"))
+	if security == "reality" && publicKey == "" {
+		return config{}, fmt.Errorf("public key (pbk) is required for reality")
+	}
+
+	shortID := firstNonEmpty(query.Get("sid"), query.Get("shortId"))
+	serviceName := firstNonEmpty(query.Get("serviceName"), query.Get("service_name"))
+	headerHost := firstNonEmpty(query.Get("host"), query.Get("authority"))
+	headerType := strings.ToLower(strings.TrimSpace(query.Get("headerType")))
+	path := strings.TrimSpace(query.Get("path"))
+
+	proxyConfig := &checkermodels.ProxyConfig{
+		Protocol:      "vless",
+		Server:        host,
+		Port:          port,
+		Name:          u.Fragment,
+		Security:      security,
+		Type:          network,
+		UUID:          userID,
+		Flow:          flow,
+		Encryption:    encryption,
+		HeaderType:    headerType,
+		Path:          path,
+		Host:          headerHost,
+		SNI:           sni,
+		Fingerprint:   fingerprint,
+		PublicKey:     publicKey,
+		ShortID:       shortID,
+		Mode:          strings.TrimSpace(query.Get("mode")),
+		ServiceName:   serviceName,
+		AllowInsecure: parseBool(query.Get("allowInsecure")),
+		ALPN:          splitCSV(query.Get("alpn")),
+		MultiMode:     parseBool(query.Get("multiMode")),
+	}
+
+	if network == "splithttp" || network == "xhttp" {
+		proxyConfig.Path = normalizedPath(path)
+	}
+	if network == "ws" || network == "httpupgrade" {
+		proxyConfig.Path = normalizedPath(path)
+	}
+
+	if err := validateTransport(proxyConfig); err != nil {
+		return config{}, err
+	}
+	if err := proxyConfig.Validate(); err != nil {
+		return config{}, fmt.Errorf("invalid parsed vless config: %w", err)
+	}
+
+	return config{proxy: proxyConfig}, nil
+}
+
+func validateTransport(cfg *checkermodels.ProxyConfig) error {
+	if cfg.Security == "reality" && cfg.PublicKey == "" {
+		return fmt.Errorf("public key (pbk) is required for reality")
+	}
+
+	switch cfg.Type {
+	case "grpc":
+		if cfg.ServiceName == "" {
+			return fmt.Errorf("grpc serviceName is required")
+		}
+	case "tcp":
+		if cfg.HeaderType != "" && cfg.HeaderType != "none" && cfg.HeaderType != "http" {
+			return fmt.Errorf("unsupported tcp header type %q", cfg.HeaderType)
+		}
+	}
+
+	return nil
+}
+
+func isSupportedNetwork(network string) bool {
+	switch network {
+	case "tcp", "ws", "grpc", "http", "h2", "httpupgrade", "splithttp", "xhttp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedSecurity(security string) bool {
+	switch security {
+	case "none", "tls", "reality":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseBool(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	return v == "1" || v == "true"
+}
+
+func splitCSV(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizedPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "/"
+	}
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
