@@ -13,6 +13,8 @@ vars:
   bin: "{{.PWD}}/bin"
   app: "krot"
   app_bin: "{{.bin}}/{{.app}}"
+  release_linux_archive: "{{.bin}}/{{.app}}_linux_amd64.tar.gz"
+  release_termux_archive: "{{.bin}}/{{.app}}_android_arm64_termux.tar.gz"
 
 env:
   COMPOSE_BAKE: true
@@ -28,13 +30,22 @@ tasks:
     cmds:
       - mkdir -p {{.bin}}
 
+  setup:android-ndk:
+    desc: install android ndk r27 if missing
+    internal: true
+    status:
+      - test -x {{.android_clang}}
+    cmds:
+      - curl -fsSL -o /tmp/android-ndk-r27-linux.zip "https://dl.google.com/android/repository/android-ndk-r27-linux.zip"
+      - unzip -q /tmp/android-ndk-r27-linux.zip -d {{.PWD}}
+
   build:
     desc: build all targets
     deps:
-      - build.linux
-      - build.termux
+      - build:linux
+      - build:termux
 
-  build.linux:
+  build:linux:
     desc: build for linux amd64
     deps:
       - setup
@@ -50,10 +61,11 @@ tasks:
       - strip {{.app_bin}}
       - objcopy --strip-unneeded {{.app_bin}}
 
-  build.termux:
+  build:termux:
     desc: build for termux (android arm64)
     deps:
       - setup
+      - setup:android-ndk
     cmds:
       - >
         CGO_ENABLED=1 GOOS=android GOARCH=arm64
@@ -64,3 +76,16 @@ tasks:
         -gcflags="{{.gcflags}}"
         -asmflags="{{.asmflags}}"
         -o {{.bin}}/{{.app}}_termux cmd/{{.app}}/main.go
+
+  release:
+    desc: build and publish github release
+    deps:
+      - build
+    cmds:
+      - curl -fsSL -o {{.bin}}/all_proxies.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
+      - curl -fsSL -o {{.bin}}/vless_universal.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} all_proxies.txt vless_universal.txt
+      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux all_proxies.txt vless_universal.txt
+      - |
+        TAG=$(date +v%m.%d.%H)
+        gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}}
