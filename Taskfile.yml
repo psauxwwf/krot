@@ -29,6 +29,19 @@ tasks:
     silent: true
     cmds:
       - mkdir -p {{.bin}}
+      - task: setup:xray-checker
+
+  setup:xray-checker:
+    desc: clone xray-checker if missing
+    internal: true
+    status:
+      - test -d xray-checker
+      - grep -q '^module github.com/kutovoys/xray-checker$' xray-checker/go.mod
+      - '! grep -R --include=''*.go'' -q ''"xray-checker/'' xray-checker'
+    cmds:
+      - test -d xray-checker || git clone https://github.com/kutovoys/xray-checker
+      - sed -i 's|^module xray-checker$|module github.com/kutovoys/xray-checker|' xray-checker/go.mod
+      - grep -R -l --include='*.go' '"xray-checker/' xray-checker | xargs -r sed -i 's|"xray-checker/|"github.com/kutovoys/xray-checker/|g'
 
   setup:android-ndk:
     desc: install android ndk r27 if missing
@@ -89,3 +102,15 @@ tasks:
       - |
         TAG=$(date +v%m.%d.%H)
         gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}}
+
+  release:private:
+    desc: build private release
+    deps:
+      - build
+    cmds:
+      - curl -fsSL -o {{.bin}}/all_proxies.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
+      - curl -fsSL -o {{.bin}}/vless_universal.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+      - cat vless.txt {{.bin}}/vless_universal.txt > {{.bin}}/vless.txt
+      - cat mtproto.txt {{.bin}}/all_proxies.txt > {{.bin}}/mtproto.txt
+      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} vless.txt mtproto.txt
+      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux vless.txt mtproto.txt

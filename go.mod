@@ -71,5 +71,4 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
-
-replace github.com/kutovoys/xray-checker => ./opensrc/repos/github.com/kutovoys/xray-checker
+replace github.com/kutovoys/xray-checker => ./xray-checker
