@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -17,11 +18,12 @@ import (
 )
 
 var (
-	in      = flag.String("in", "in.txt", "input file")
-	out     = flag.String("out", "out.txt", "output file for working proxies")
-	level   = flag.String("level", "info", "log level: debug|info|warn|error")
-	timeout = flag.Duration("timeout", 30*time.Second, "proxy check timeout (e.g. 30s, 1m)")
-	workers = flag.Int("workers", runtime.NumCPU(), "number of concurrent workers")
+	in       = flag.String("in", "in.txt", "input file")
+	out      = flag.String("out", "out.txt", "output file for working proxies")
+	level    = flag.String("level", "info", "log level: debug|info|warn|error")
+	timeout  = flag.Duration("timeout", 30*time.Second, "proxy check timeout (e.g. 30s, 1m)")
+	workers  = flag.Int("workers", runtime.NumCPU(), "number of concurrent workers")
+	pipeline = flag.Bool("pipeline", false, "start all checks")
 )
 
 type job struct {
@@ -35,61 +37,25 @@ type result struct {
 	err  error
 }
 
-func main() {
-	flag.Parse()
-
-	var parsedLevel slog.Level
-	if err := parsedLevel.UnmarshalText([]byte(*level)); err != nil {
-		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *level, err)
-		os.Exit(2)
-	}
-	if *timeout <= 0 {
-		fmt.Fprintf(os.Stderr, "invalid timeout %q: must be > 0\n", timeout.String())
-		os.Exit(2)
-	}
-	if *workers <= 0 {
-		fmt.Fprintf(os.Stderr, "invalid workers %d: must be > 0\n", *workers)
-		os.Exit(2)
-	}
-
-	logFile, err := os.OpenFile("krot.json", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+func _main(
+	in string,
+	out string,
+	workers int,
+	timeout time.Duration,
+) error {
+	_in, err := os.Open(in)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open input file %s: %w", in, err)
 	}
-	defer logFile.Close()
+	defer _in.Close()
 
-	log := slog.New(
-		slog.NewMultiHandler(
-			slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-				AddSource: true,
-				Level:     parsedLevel,
-			}),
-			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-				AddSource: true,
-				Level:     parsedLevel,
-			}),
-		),
-	)
-	slog.SetDefault(log)
-	slog.Info("starting proxy checker",
-		"input", *in, "out", *out, "level", parsedLevel.String(), "timeout", timeout.String(), "workers", *workers)
-
-	file, err := os.Open(*in)
+	_out, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
-		slog.Error("failed to open input file", "path", *in, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open output file %s: %w", out, err)
 	}
-	defer file.Close()
+	defer _out.Close()
 
-	outFile, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		slog.Error("failed to open output file", "path", *out, "error", err)
-		os.Exit(1)
-	}
-	defer outFile.Close()
-
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(_in)
 	var (
 		line, total, ok, fail int
 		jobs                  []job
@@ -110,19 +76,18 @@ func main() {
 	}
 
 	if err := scanner.Err(); err != nil {
-		slog.Error("failed to read input", "path", *in, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to read input %s: %w", in, err)
 	}
 
 	jobsch := make(chan job)
 	resch := make(chan result)
 
 	var wg sync.WaitGroup
-	for i := 0; i < *workers; i++ {
+	for range workers {
 		wg.Go(func() {
 			for j := range jobsch {
 				slog.Debug("checking proxy", "line", j.line)
-				err := check(j.uri, *timeout)
+				err := check(j.uri, timeout)
 				resch <- result{line: j.line, uri: j.uri, err: err}
 			}
 		})
@@ -146,13 +111,11 @@ func main() {
 
 		ok++
 		slog.Info("proxy check ok", "line", r.line, "uri", r.uri)
-		if _, err := outFile.WriteString(r.uri + "\n"); err != nil {
-			slog.Error("failed to write output", "path", *out, "line", r.line, "error", err)
-			os.Exit(1)
+		if _, err := _out.WriteString(r.uri + "\n"); err != nil {
+			return fmt.Errorf("failed to write output %s in line %d: %w", out, r.line, err)
 		}
-		if err := outFile.Sync(); err != nil {
-			slog.Error("failed to sync output", "path", *out, "line", r.line, "error", err)
-			os.Exit(1)
+		if err := _out.Sync(); err != nil {
+			return fmt.Errorf("failed to sync output %s in line %d: %w", out, r.line, err)
 		}
 	}
 
@@ -161,6 +124,64 @@ func main() {
 		"ok", ok,
 		"failed", fail,
 	)
+
+	return nil
+}
+
+func main() {
+	flag.Parse()
+
+	var parsedLevel slog.Level
+	if err := parsedLevel.UnmarshalText([]byte(*level)); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *level, err)
+		os.Exit(1)
+	}
+	if *timeout <= 0 {
+		fmt.Fprintf(os.Stderr, "invalid timeout %q: must be > 0\n", timeout.String())
+		os.Exit(2)
+	}
+	if *workers <= 0 {
+		fmt.Fprintf(os.Stderr, "invalid workers %d: must be > 0\n", *workers)
+		os.Exit(3)
+	}
+
+	logFile, err := os.OpenFile("krot.json", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
+		os.Exit(4)
+	}
+	defer logFile.Close()
+
+	log := slog.New(
+		slog.NewMultiHandler(
+			slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+				AddSource: true,
+				Level:     parsedLevel,
+			}),
+			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+				AddSource: true,
+				Level:     parsedLevel,
+			}),
+		),
+	)
+	slog.SetDefault(log)
+	slog.Info("starting proxy checker",
+		"input", *in, "out", *out, "level", parsedLevel.String(), "timeout", timeout.String(), "workers", *workers)
+
+	if *pipeline {
+		if err := errors.Join(
+			_main("vless.txt", "vless_true.txt", *workers*10, *timeout),
+			_main("mtproto.txt", "mtproto_true.txt", *workers*10, *timeout),
+		); err != nil {
+			slog.Error("fatal error", "error", err)
+			os.Exit(5)
+		}
+		return
+	}
+	if err := _main(*in, *out, *workers, *timeout); err != nil {
+		slog.Error("fatal error", "error", err)
+		os.Exit(5)
+	}
 }
 
 func check(rawURI string, timeout time.Duration) error {
