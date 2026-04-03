@@ -95,10 +95,10 @@ tasks:
     deps:
       - build
     cmds:
-      - curl -fsSL -o {{.bin}}/all_proxies.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
-      - curl -fsSL -o {{.bin}}/vless_universal.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
-      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} all_proxies.txt vless_universal.txt
-      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux all_proxies.txt vless_universal.txt
+      - curl -fsSL -o {{.bin}}/mtpoto.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
+      - curl -fsSL -o {{.bin}}/vless.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} mtpoto.txt vless.txt
+      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux mtpoto.txt vless.txt
       - |
         TAG=$(date +v%m.%d.%H)
         gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}}
@@ -110,7 +110,7 @@ tasks:
     cmds:
       - curl -fsSL -o {{.bin}}/all_proxies.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
       - curl -fsSL -o {{.bin}}/vless_universal.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
-      - cat vless.txt {{.bin}}/vless_universal.txt > {{.bin}}/vless.txt
-      - cat mtproto.txt {{.bin}}/all_proxies.txt > {{.bin}}/mtproto.txt
+      - cat vless.txt {{.bin}}/vless_universal.txt | sort -u > {{.bin}}/vless.txt
+      - cat mtproto.txt {{.bin}}/all_proxies.txt | sort -u > {{.bin}}/mtproto.txt
       - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} vless.txt mtproto.txt
       - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux vless.txt mtproto.txt

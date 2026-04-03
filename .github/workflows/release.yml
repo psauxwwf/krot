@@ -54,13 +54,13 @@ jobs:
 
       - name: Download release lists
         run: |
-          curl -fsSL -o ./bin/all_proxies.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
-          curl -fsSL -o ./bin/vless_universal.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+          curl -fsSL -o ./bin/mtproto.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
+          curl -fsSL -o ./bin/vless.txt "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
 
       - name: Pack release artifacts
         run: |
-          tar -czf "./bin/${{ github.event.repository.name }}_linux_amd64.tar.gz" -C ./bin krot all_proxies.txt vless_universal.txt
-          tar -czf "./bin/${{ github.event.repository.name }}_android_arm64_termux.tar.gz" -C ./bin krot_termux all_proxies.txt vless_universal.txt
+          tar -czf "./bin/${{ github.event.repository.name }}_linux_amd64.tar.gz" -C ./bin krot mtproto.txt vless.txt
+          tar -czf "./bin/${{ github.event.repository.name }}_android_arm64_termux.tar.gz" -C ./bin krot_termux mtproto.txt vless.txt
 
       - name: Set tag name
         run: echo "GITHUB_RELEASE_TAG=$(date +v%m.%d.%H)" >> "$GITHUB_ENV"
