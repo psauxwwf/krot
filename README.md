@@ -75,13 +75,6 @@ vless://uuid@example.com:443?encryption=none&type=grpc&security=tls&serviceName=
 - Entries are written as checks finish, so output order is not guaranteed to match input order
 - `krot.json` is append-only JSON logging in the current working directory
 
-## Public List Sources
-
-- MTProto: <https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt>
-- VLESS: <https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt>
-
-These same source files are used by the `task release` flow when building release archives.
-
 ## Disclaimer
 
 Use the project responsibly and in compliance with local laws, provider terms, and platform rules.

@@ -71,6 +71,9 @@ func _main(
 			slog.Debug("skipping comment line", "line", line)
 			continue
 		}
+		if strings.Contains(uri, "#") {
+			uri = strings.TrimSpace(strings.Split(uri, "#")[0])
+		}
 		total++
 		jobs = append(jobs, job{line: line, uri: uri})
 	}
@@ -170,8 +173,8 @@ func main() {
 
 	if *pipeline {
 		if err := errors.Join(
-			_main("vless.txt", "vless_true.txt", *workers*10, *timeout),
 			_main("mtproto.txt", "mtproto_true.txt", *workers*10, *timeout),
+			_main("vless.txt", "vless_true.txt", *workers*10, *timeout),
 		); err != nil {
 			slog.Error("fatal error", "error", err)
 			os.Exit(5)
