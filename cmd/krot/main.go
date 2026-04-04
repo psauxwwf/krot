@@ -48,33 +48,23 @@ func toOutname(in string) string {
 	return fmt.Sprintf("%s_%s", time.Now().Format("02.01.2006_15:04"), filepath.Base(in))
 }
 
-func _main(
-	in string,
-	out string,
-	workers int,
-) error {
+func readJobs(in string, maxChars int) ([]job, error) {
 	_in, err := os.Open(in)
 	if err != nil {
-		return fmt.Errorf("failed to open input file %s: %w", in, err)
+		return nil, fmt.Errorf("failed to open input file %s: %w", in, err)
 	}
 	defer _in.Close()
 
-	_out, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("failed to open output file %s: %w", out, err)
-	}
-	defer _out.Close()
-
 	reader := bufio.NewReader(_in)
-	var (
-		line, total, ok, fail int
-		jobs                  []job
-	)
+	line := 0
+	jobs := make([]job, 0)
+
 	for {
 		line++
 		rawLine, err := reader.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
-			return fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
+		isEOF := errors.Is(err, io.EOF)
+		if err != nil && !isEOF && !errors.Is(err, bufio.ErrBufferFull) {
+			return nil, fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
 		}
 
 		if errors.Is(err, bufio.ErrBufferFull) {
@@ -82,7 +72,7 @@ func _main(
 				_, err = reader.ReadString('\n')
 			}
 			if err != nil && !errors.Is(err, io.EOF) {
-				return fmt.Errorf("failed to skip too long line %d in input %s: %w", line, in, err)
+				return nil, fmt.Errorf("failed to skip too long line %d in input %s: %w", line, in, err)
 			}
 			slog.Warn("skipping too long line", "line", line)
 			if errors.Is(err, io.EOF) {
@@ -92,28 +82,52 @@ func _main(
 		}
 
 		uri := strings.TrimSpace(rawLine)
-		if uri == "" {
+		skip := false
+		switch {
+		case uri == "":
 			slog.Debug("skipping empty line", "line", line)
-			continue
-		}
-		if strings.HasPrefix(uri, "#") {
+			skip = true
+		case strings.HasPrefix(uri, "#"):
 			slog.Debug("skipping comment line", "line", line)
-			continue
-		}
-		if utf8.RuneCountInString(uri) > *chars {
+			skip = true
+		case utf8.RuneCountInString(uri) > maxChars:
 			slog.Debug("skipping so long line", "line", line)
+			skip = true
+		}
+		if skip {
+			if isEOF {
+				break
+			}
 			continue
 		}
-		// if strings.Contains(uri, "#") {
-		// 	uri = strings.TrimSpace(strings.Split(uri, "#")[0])
-		// }
-		total++
-		jobs = append(jobs, job{line: line, uri: uri})
 
-		if errors.Is(err, io.EOF) {
+		jobs = append(jobs, job{line: line, uri: uri})
+		if isEOF {
 			break
 		}
 	}
+
+	return jobs, nil
+}
+
+func _main(
+	in string,
+	out string,
+	workers int,
+) error {
+	jobs, err := readJobs(in, *chars)
+	if err != nil {
+		return err
+	}
+	total := len(jobs)
+
+	var ok, fail int
+
+	_out, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to open output file %s: %w", out, err)
+	}
+	defer _out.Close()
 
 	if *shuf {
 		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(jobs), func(i, j int) {
