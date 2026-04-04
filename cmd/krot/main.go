@@ -28,7 +28,7 @@ var (
 	timeout  = flag.Duration("timeout", 10*time.Second, "proxy check timeout (e.g. 10s, 1m)")
 	workers  = flag.Int("workers", runtime.NumCPU(), "number of concurrent workers")
 	pipeline = flag.Bool("pipeline", false, "start all checks")
-	shuf     = flag.Bool("shuf", true, "shuffle input lines")
+	shuf     = flag.Bool("shuf", false, "shuffle input lines")
 	parse    = flag.Bool("parse", false, "parse only url don't send requests")
 	chars    = flag.Int("chars", 8192, "max chars in one line")
 )
@@ -158,14 +158,21 @@ func _main(
 		close(resch)
 	}()
 
+	_print := func() {
+		processed := ok + fail
+		fmt.Fprintf(os.Stderr, "\r%d/%d | ok %d | failed %d", processed, total, ok, fail)
+	}
+
 	for r := range resch {
 		if r.err != nil {
 			fail++
+			_print()
 			slog.Warn("proxy check failed", "line", r.line, "uri", r.uri, "error", r.err)
 			continue
 		}
 
 		ok++
+		_print()
 		slog.Info("proxy check ok", "line", r.line, "uri", r.uri)
 		if _, err := _out.WriteString(r.uri + "\n"); err != nil {
 			return fmt.Errorf("failed to write output %s in line %d: %w", out, r.line, err)
@@ -173,6 +180,9 @@ func _main(
 		if err := _out.Sync(); err != nil {
 			return fmt.Errorf("failed to sync output %s in line %d: %w", out, r.line, err)
 		}
+	}
+	if total > 0 {
+		fmt.Fprintln(os.Stderr)
 	}
 
 	slog.Info("proxy checking finished",
@@ -210,10 +220,6 @@ func main() {
 
 	log := slog.New(
 		slog.NewMultiHandler(
-			slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-				AddSource: true,
-				Level:     parsedLevel,
-			}),
 			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
 				AddSource: true,
 				Level:     parsedLevel,

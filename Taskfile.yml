@@ -42,12 +42,13 @@ tasks:
       - mkdir -p {{.tmp_dir}}
       - |
         for i in $(seq 1 26); do
-          curl -fsSL -o "{{.tmp_dir}}/vless-${i}.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/${i}.txt" &
+          curl -fsSL -o "{{.tmp_dir}}/vless_${i}.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/${i}.txt"
         done
         wait
       - task: vless:merge
         vars:
-          input_glob: "{{.tmp_dir}}/vless-*.txt"
+          input_glob: "{{.tmp_dir}}/vless_*.txt"
+          out: "vless.txt"
 
   vless:small:
     desc: download small vless file
@@ -56,12 +57,13 @@ tasks:
     cmds:
       - mkdir -p {{.tmp_dir}}
       - |
-        curl -fsSL -o "{{.tmp_dir}}/vless-1.txt" "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt" &
-        curl -fsSL -o "{{.tmp_dir}}/vless-2.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/26.txt" &
+        curl -fsSL -o "{{.tmp_dir}}/vless_1.txt" "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
+        curl -fsSL -o "{{.tmp_dir}}/vless_2.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/26.txt"
         wait
       - task: vless:merge
         vars:
-          input_glob: "{{.tmp_dir}}/vless-*.txt"
+          input_glob: "{{.tmp_dir}}/vless_*.txt"
+          out: "vless_small.txt"
 
   vless:merge:
     desc: merge and parse vless source files
@@ -69,10 +71,11 @@ tasks:
     requires:
       vars:
         - input_glob
+        - out
     cmds:
-      - cat {{.input_glob}} > {{.tmp_dir}}/vless.txt
+      - sort -u {{.input_glob}} > {{.tmp_dir}}/vless.txt
       - |
-        {{.app_bin}} -in={{.tmp_dir}}/vless.txt -out={{.bin}}/vless-union.txt -parse -level=error -workers=80
+        {{.app_bin}} -in={{.tmp_dir}}/vless.txt -out={{.bin}}/{{.out}} -parse -level=error -workers=80
       - rm -f {{.input_glob}} {{.tmp_dir}}/vless.txt
 
   mtproto:
@@ -80,7 +83,7 @@ tasks:
     deps:
       - setup
     cmds:
-      - curl -fsSL -o {{.bin}}/mtproto-union.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
+      - curl -fsSL -o {{.bin}}/mtproto.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
 
   setup:xray-checker:
     desc: clone xray-checker if missing
@@ -145,8 +148,8 @@ tasks:
     desc: create release archives
     internal: true
     cmds:
-      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} mtproto.txt vless.txt
-      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux mtproto.txt vless.txt
+      - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} mtproto.txt vless.txt vless_small.txt
+      - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux mtproto.txt vless.txt vless_small.txt
 
   release:
     desc: build and prepare release
@@ -154,9 +157,8 @@ tasks:
       - build
     cmds:
       - task: vless
+      - task: vless:small
       - task: mtproto
-      - sort -u {{.bin}}/vless-union.txt > {{.bin}}/vless.txt
-      - sort -u {{.bin}}/mtproto-union.txt > {{.bin}}/mtproto.txt
       - task: release:pack
 
   release:create:
@@ -167,14 +169,3 @@ tasks:
       - |
         TAG=$(date +v%m.%d.%H)
         gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}}
-
-  release:small:
-    desc: build private release
-    deps:
-      - build
-    cmds:
-      - task: vless:small
-      - task: mtproto
-      - sort -u vless.txt {{.bin}}/vless-union.txt > {{.bin}}/vless.txt
-      - sort -u mtproto.txt {{.bin}}/mtproto-union.txt > {{.bin}}/mtproto.txt
-      - task: release:pack
