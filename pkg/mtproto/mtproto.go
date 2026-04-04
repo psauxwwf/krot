@@ -16,7 +16,7 @@ import (
 	"github.com/gotd/td/telegram/dcs"
 )
 
-func Check(uri string, timeout time.Duration) error {
+func Check(uri string, timeout time.Duration, parseOnly bool) error {
 	slog.Debug("mtproto: parse proxy URI")
 
 	proxyAddr, secret, err := parseProxyURI(uri)
@@ -25,6 +25,10 @@ func Check(uri string, timeout time.Duration) error {
 		return err
 	}
 	slog.Debug("mtproto: parsed proxy URI", "addr", proxyAddr, "secret_len", len(secret))
+
+	if parseOnly {
+		return nil
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
