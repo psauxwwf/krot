@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,12 +20,13 @@ import (
 )
 
 var (
-	in       = flag.String("in", "in.txt", "input file")
-	out      = flag.String("out", "out.txt", "output file for working proxies")
+	in       = flag.String("in", "vless.txt", "input file")
+	out      = flag.String("out", "", "output file")
 	level    = flag.String("level", "info", "log level: debug|info|warn|error")
-	timeout  = flag.Duration("timeout", 30*time.Second, "proxy check timeout (e.g. 30s, 1m)")
+	timeout  = flag.Duration("timeout", 10*time.Second, "proxy check timeout (e.g. 10s, 1m)")
 	workers  = flag.Int("workers", runtime.NumCPU(), "number of concurrent workers")
 	pipeline = flag.Bool("pipeline", false, "start all checks")
+	shuf     = flag.Bool("shuf", true, "shuffle input lines")
 )
 
 type job struct {
@@ -35,6 +38,10 @@ type result struct {
 	line int
 	uri  string
 	err  error
+}
+
+func toOutname(in string) string {
+	return fmt.Sprintf("%s_%s", time.Now().Format("02.01.2006_15:04"), filepath.Base(in))
 }
 
 func _main(
@@ -80,6 +87,12 @@ func _main(
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to read input %s: %w", in, err)
+	}
+
+	if *shuf {
+		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(jobs), func(i, j int) {
+			jobs[i], jobs[j] = jobs[j], jobs[i]
+		})
 	}
 
 	jobsch := make(chan job)
@@ -173,14 +186,16 @@ func main() {
 
 	if *pipeline {
 		if err := errors.Join(
-			_main("mtproto.txt", "mtproto_true.txt", *workers*10, *timeout),
-			_main("vless.txt", "vless_true.txt", *workers*10, *timeout),
+			_main("mtproto.txt", toOutname("mtproto.txt"), *workers*10, *timeout),
+			_main("vless.txt", toOutname("vless.txt"), *workers*10, *timeout),
 		); err != nil {
 			slog.Error("fatal error", "error", err)
 			os.Exit(5)
 		}
 		return
 	}
+
+	*out = toOutname(*in)
 	if err := _main(*in, *out, *workers, *timeout); err != nil {
 		slog.Error("fatal error", "error", err)
 		os.Exit(5)
