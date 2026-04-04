@@ -33,14 +33,18 @@ type config struct {
 	proxy *checkermodels.ProxyConfig
 }
 
-func CheckWithTimeout(rawURI string, timeout time.Duration) error {
+func Check(rawURI string, timeout time.Duration, parseOnly bool) error {
 	if timeout <= 0 {
 		return fmt.Errorf("timeout must be > 0")
 	}
 
-	cfg, err := parse(rawURI)
+	config, err := parse(rawURI)
 	if err != nil {
 		return err
+	}
+
+	if parseOnly {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -51,7 +55,7 @@ func CheckWithTimeout(rawURI string, timeout time.Duration) error {
 		return fmt.Errorf("reserve local socks port: %w", err)
 	}
 
-	xrayInstance, err := startXray(ctx, cfg, port)
+	xrayInstance, err := startXray(ctx, config, port)
 	if err != nil {
 		return err
 	}

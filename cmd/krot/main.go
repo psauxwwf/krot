@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"krot/pkg/mtproto"
 	"krot/pkg/vless"
@@ -27,6 +29,8 @@ var (
 	workers  = flag.Int("workers", runtime.NumCPU(), "number of concurrent workers")
 	pipeline = flag.Bool("pipeline", false, "start all checks")
 	shuf     = flag.Bool("shuf", true, "shuffle input lines")
+	parse    = flag.Bool("parse", false, "parse only url don't send requests")
+	chars    = flag.Int("chars", 8192, "max chars in one line")
 )
 
 type job struct {
@@ -48,7 +52,6 @@ func _main(
 	in string,
 	out string,
 	workers int,
-	timeout time.Duration,
 ) error {
 	_in, err := os.Open(in)
 	if err != nil {
@@ -62,14 +65,33 @@ func _main(
 	}
 	defer _out.Close()
 
-	scanner := bufio.NewScanner(_in)
+	reader := bufio.NewReader(_in)
 	var (
 		line, total, ok, fail int
 		jobs                  []job
 	)
-	for scanner.Scan() {
+	for {
 		line++
-		uri := strings.TrimSpace(scanner.Text())
+		rawLine, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
+			return fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
+		}
+
+		if errors.Is(err, bufio.ErrBufferFull) {
+			for errors.Is(err, bufio.ErrBufferFull) {
+				_, err = reader.ReadString('\n')
+			}
+			if err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("failed to skip too long line %d in input %s: %w", line, in, err)
+			}
+			slog.Warn("skipping too long line", "line", line)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			continue
+		}
+
+		uri := strings.TrimSpace(rawLine)
 		if uri == "" {
 			slog.Debug("skipping empty line", "line", line)
 			continue
@@ -78,15 +100,19 @@ func _main(
 			slog.Debug("skipping comment line", "line", line)
 			continue
 		}
-		if strings.Contains(uri, "#") {
-			uri = strings.TrimSpace(strings.Split(uri, "#")[0])
+		if utf8.RuneCountInString(uri) > *chars {
+			slog.Debug("skipping so long line", "line", line)
+			continue
 		}
+		// if strings.Contains(uri, "#") {
+		// 	uri = strings.TrimSpace(strings.Split(uri, "#")[0])
+		// }
 		total++
 		jobs = append(jobs, job{line: line, uri: uri})
-	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to read input %s: %w", in, err)
+		if errors.Is(err, io.EOF) {
+			break
+		}
 	}
 
 	if *shuf {
@@ -103,7 +129,7 @@ func _main(
 		wg.Go(func() {
 			for j := range jobsch {
 				slog.Debug("checking proxy", "line", j.line)
-				err := check(j.uri, timeout)
+				err := check(j.uri, *timeout, *parse)
 				resch <- result{line: j.line, uri: j.uri, err: err}
 			}
 		})
@@ -186,8 +212,8 @@ func main() {
 
 	if *pipeline {
 		if err := errors.Join(
-			_main("mtproto.txt", toOutname("mtproto.txt"), *workers*10, *timeout),
-			_main("vless.txt", toOutname("vless.txt"), *workers*10, *timeout),
+			_main("mtproto.txt", toOutname("mtproto.txt"), *workers*10),
+			_main("vless.txt", toOutname("vless.txt"), *workers*10),
 		); err != nil {
 			slog.Error("fatal error", "error", err)
 			os.Exit(5)
@@ -195,14 +221,16 @@ func main() {
 		return
 	}
 
-	*out = toOutname(*in)
-	if err := _main(*in, *out, *workers, *timeout); err != nil {
+	if *out == "" {
+		*out = toOutname(*in)
+	}
+	if err := _main(*in, *out, *workers); err != nil {
 		slog.Error("fatal error", "error", err)
 		os.Exit(5)
 	}
 }
 
-func check(rawURI string, timeout time.Duration) error {
+func check(rawURI string, timeout time.Duration, parseOnly bool) error {
 	u, err := url.Parse(rawURI)
 	if err != nil {
 		return fmt.Errorf("invalid uri: %w", err)
@@ -210,13 +238,13 @@ func check(rawURI string, timeout time.Duration) error {
 
 	switch {
 	case strings.EqualFold(u.Scheme, "vless"):
-		return vless.CheckWithTimeout(rawURI, timeout)
+		return vless.Check(rawURI, timeout, parseOnly)
 	case strings.EqualFold(u.Scheme, "tg") && strings.EqualFold(u.Host, "proxy"):
-		return mtproto.Check(rawURI, timeout)
+		return mtproto.Check(rawURI, timeout, parseOnly)
 	case (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) &&
 		(strings.EqualFold(u.Host, "t.me") || strings.EqualFold(u.Host, "www.t.me")) &&
 		u.Path == "/proxy":
-		return mtproto.Check(rawURI, timeout)
+		return mtproto.Check(rawURI, timeout, parseOnly)
 	default:
 		return fmt.Errorf("unsupported proxy url format: %q", rawURI)
 	}
