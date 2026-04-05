@@ -29,6 +29,7 @@ tasks:
     desc: set up the environment
     internal: true
     silent: true
+    run: once
     cmds:
       - mkdir -p {{.bin}}
       - mkdir -p {{.tmp_dir}}
@@ -88,6 +89,7 @@ tasks:
   setup:xray-checker:
     desc: clone xray-checker if missing
     internal: true
+    run: once
     status:
       - test -d xray-checker
       - grep -q '^module github.com/kutovoys/xray-checker$' xray-checker/go.mod
@@ -108,9 +110,9 @@ tasks:
 
   build:
     desc: build all targets
-    deps:
-      - build:linux
-      - build:termux
+    cmds:
+      - task: build:linux
+      - task: build:termux
 
   build:linux:
     desc: build for linux amd64
