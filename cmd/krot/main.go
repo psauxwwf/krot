@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"krot/pkg/checker"
 	"krot/pkg/mtproto"
-	"krot/pkg/vless"
 )
 
 var (
@@ -257,8 +257,11 @@ func check(rawURI string, timeout time.Duration, parseOnly bool) error {
 	}
 
 	switch {
-	case strings.EqualFold(u.Scheme, "vless"):
-		return vless.Check(rawURI, timeout, parseOnly)
+	case strings.EqualFold(u.Scheme, "vless"),
+		strings.EqualFold(u.Scheme, "vmess"),
+		strings.EqualFold(u.Scheme, "trojan"),
+		strings.EqualFold(u.Scheme, "ss"):
+		return checker.Check(rawURI, timeout, parseOnly)
 	case strings.EqualFold(u.Scheme, "tg") && strings.EqualFold(u.Host, "proxy"):
 		return mtproto.Check(rawURI, timeout, parseOnly)
 	case (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) &&
