@@ -1,61 +1,115 @@
 # krot
 
-`krot` is a concurrent proxy checker for two formats:
+`krot` is a concurrent proxy checker.
 
-- Telegram MTProto proxy links: `tg://proxy...`, `https://t.me/proxy...`
-- VLESS URIs: `vless://...`
+It reads proxy URLs from input files, validates them, and saves only working entries.
 
-The tool reads proxy URLs from a text file, checks them, and writes only working entries to the output file.
+Supported formats:
 
-## Features
+- MTProto links: `tg://proxy?...`, `https://t.me/proxy?...`, `https://www.t.me/proxy?...`
+- Xray-compatible URI schemes: `vless://`, `vmess://`, `trojan://`, `ss://`
 
-- Checks MTProto proxies through a real Telegram API request (`help.getNearestDc`)
-- Checks VLESS proxies by starting a local Xray instance and probing HTTP connectivity through SOCKS
-- Supports configurable timeout and worker concurrency
-- Skips empty lines and `#` comments in the input file
-- Writes text logs to stderr and JSON logs to `krot.json`
+## What It Does
+
+- MTProto checks use a real Telegram API call (`help.getNearestDc`)
+- `vless/vmess/trojan/ss` checks run local Xray and probe connectivity via local SOCKS5
+- Supports high concurrency with worker pool
+- Skips empty lines and `#` comments
+- Optional shuffle for input lines before checking
+- Optional parse-only mode (URI parse/validate only, without network checks)
+- Writes JSON logs to `krot.json` (append mode)
 
 ## Requirements
 
-- Go `1.26.1+` for building from source
-- Network access to the tested proxy endpoints
-- For VLESS checks: access to probe URLs such as `https://cp.cloudflare.com/generate_204` and `https://www.gstatic.com/generate_204`
+- Go `1.26.1+` to build from source
+- Network access to tested proxy endpoints
+- For Xray-based checks, access to probe URLs:
+  - `https://cp.cloudflare.com/generate_204`
+  - `https://www.gstatic.com/generate_204`
 
 ## Build
-
-Or use the provided `Taskfile`:
 
 ```bash
 task build:linux
 ```
 
-There is also a Termux/Android ARM64 target:
+Termux/Android ARM64 build:
 
 ```bash
 task build:termux
 ```
 
-## Usage
+## Flags
+
+All available CLI flags from `cmd/krot/main.go`:
+
+- `-in` (default: `vless.txt`) - input file
+- `-out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
+- `-level` (default: `info`) - JSON log level: `debug|info|warn|error`
+- `-timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
+- `-workers` (default: `runtime.NumCPU()*3`) - number of concurrent workers
+- `-pipeline` (default: `false`) - run built-in pipeline checks for `mtproto.txt`, `vless.txt`, `vless_small.txt`
+- `-shuf` (default: `true`) - shuffle input lines before processing
+- `-parse` (default: `false`) - parse/validate only, without outbound requests
+- `-chars` (default: `8192`) - max characters allowed in one input line
+- `-load` (default: `false`) - download source lists into local files and then run parse validation on them
+
+## Modes
+
+`krot` currently works in three practical modes.
+
+### 1) Normal mode (single file check)
+
+Default mode when `-load=false` and `-pipeline=false`.
 
 ```bash
-./bin/krot -in in.txt -out out.txt -timeout 30s -workers 8 -level info
+./bin/krot -in vless.txt -out ok.txt -workers 24 -timeout 8s
 ```
 
-## Command-Line Flags
+If `-out` is not set, output filename is generated automatically.
 
-- `-in` default `in.txt`: input file with proxy URLs
-- `-out` default `out.txt`: output file for working proxies
-- `-timeout` default `30s`: timeout per proxy check
-- `-workers` default `runtime.NumCPU()`: number of concurrent workers
-- `-level` default `info`: log level: `debug`, `info`, `warn`, `error`
+### 2) Pipeline mode
 
-Invalid `timeout` and `workers` values are rejected at startup.
+Runs checks for predefined files in one run:
 
-## Input Format
+- `mtproto.txt`
+- `vless.txt`
+- `vless_small.txt`
 
-- One proxy URL per line
+```bash
+./bin/krot -pipeline -workers 24 -timeout 8s
+```
+
+### 3) Load mode
+
+Downloads and merges remote source lists into:
+
+- `vless.txt`
+- `vless_small.txt`
+- `mtproto.txt`
+
+Then runs parse-only validation on these files.
+
+```bash
+./bin/krot -load -workers 24
+```
+
+## Parse-Only Mode
+
+`-parse` can be used in normal or pipeline mode to quickly validate URI syntax without real connectivity checks:
+
+```bash
+./bin/krot -in in.txt -parse
+```
+
+In parse-only flow, worker count is internally multiplied for faster parsing throughput.
+
+## Input Rules
+
+- One proxy URI per line
 - Empty lines are ignored
-- Lines starting with `#` are ignored as comments
+- Lines starting with `#` are ignored
+- Lines longer than `-chars` are skipped
 
 Example:
 
@@ -64,17 +118,20 @@ Example:
 tg://proxy?server=example.com&port=443&secret=abcdef1234
 https://t.me/proxy?server=example.com&port=443&secret=abcdef1234
 
-# VLESS
+# Xray-compatible URIs
 vless://uuid@example.com:443?encryption=none&type=tcp&security=tls&sni=example.com
-vless://uuid@example.com:443?encryption=none&type=grpc&security=tls&serviceName=my-service&sni=example.com
+vmess://...
+trojan://...
+ss://...
 ```
 
-## Output
+## Output and Logs
 
-- The output file contains only proxies that passed the check
-- Entries are written as checks finish, so output order is not guaranteed to match input order
-- `krot.json` is append-only JSON logging in the current working directory
+- Output file contains only successful entries
+- Order is not guaranteed (concurrent processing)
+- Progress is printed to `stderr`
+- Structured JSON logs are appended to `krot.json`
 
 ## Disclaimer
 
-Use the project responsibly and in compliance with local laws, provider terms, and platform rules.
+Use responsibly and in compliance with local laws and service/provider policies.
