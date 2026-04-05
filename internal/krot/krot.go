@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/rand"
 	"net/url"
@@ -52,12 +51,16 @@ func ToOutname(in string) string {
 
 func (k *Krot) Pipeline(workers int) error {
 	return errors.Join(
-		k.Run("mtproto.txt", ToOutname("mtproto.txt"), workers*10),
-		k.Run("vless.txt", ToOutname("vless.txt"), workers*10),
+		k.Run("mtproto.txt", ToOutname("mtproto.txt"), workers),
+		k.Run("vless.txt", ToOutname("vless.txt"), workers),
+		k.Run("vless_small.txt", ToOutname("vless.txt"), workers),
 	)
 }
 
 func (k *Krot) Run(in, out string, workers int) error {
+	if k.parseOnly {
+		workers = workers * 10
+	}
 	jobs, err := readJobs(in, k.maxChars)
 	if err != nil {
 		return err
@@ -116,7 +119,9 @@ func (k *Krot) Run(in, out string, workers int) error {
 
 		ok++
 		_print()
-		slog.Info("proxy check ok", "line", r.line, "uri", r.uri)
+		if !k.parseOnly {
+			slog.Info("proxy check ok", "line", r.line, "uri", r.uri)
+		}
 		if _, err := _out.WriteString(r.uri + "\n"); err != nil {
 			return fmt.Errorf("failed to write output %s in line %d: %w", out, r.line, err)
 		}
@@ -144,56 +149,34 @@ func readJobs(in string, maxChars int) ([]job, error) {
 	}
 	defer _in.Close()
 
-	reader := bufio.NewReader(_in)
+	scanner := bufio.NewScanner(_in)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
 	line := 0
 	jobs := make([]job, 0)
 
-	for {
+	for scanner.Scan() {
 		line++
-		rawLine, err := reader.ReadString('\n')
-		isEOF := errors.Is(err, io.EOF)
-		if err != nil && !isEOF && !errors.Is(err, bufio.ErrBufferFull) {
-			return nil, fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
-		}
+		uri := strings.TrimSpace(scanner.Text())
 
-		if errors.Is(err, bufio.ErrBufferFull) {
-			for errors.Is(err, bufio.ErrBufferFull) {
-				_, err = reader.ReadString('\n')
-			}
-			if err != nil && !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("failed to skip too long line %d in input %s: %w", line, in, err)
-			}
-			slog.Warn("skipping too long line", "line", line)
-			if errors.Is(err, io.EOF) {
-				break
-			}
+		if uri == "" {
+			slog.Debug("skipping empty line", "line", line)
 			continue
 		}
-
-		uri := strings.TrimSpace(rawLine)
-		skip := false
-		switch {
-		case uri == "":
-			slog.Debug("skipping empty line", "line", line)
-			skip = true
-		case strings.HasPrefix(uri, "#"):
+		if strings.HasPrefix(uri, "#") {
 			slog.Debug("skipping comment line", "line", line)
-			skip = true
-		case utf8.RuneCountInString(uri) > maxChars:
-			slog.Debug("skipping so long line", "line", line)
-			skip = true
+			continue
 		}
-		if skip {
-			if isEOF {
-				break
-			}
+		if utf8.RuneCountInString(uri) > maxChars {
+			slog.Debug("skipping so long line", "line", line)
 			continue
 		}
 
 		jobs = append(jobs, job{line: line, uri: uri})
-		if isEOF {
-			break
-		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
 	}
 
 	return jobs, nil
