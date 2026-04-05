@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -9,18 +10,21 @@ import (
 	"time"
 
 	"krot/internal/krot"
+
+	"krot/pkg/loader"
 )
 
 var (
 	in       = flag.String("in", "vless.txt", "input file")
 	out      = flag.String("out", "", "output file")
 	level    = flag.String("level", "info", "log level: debug|info|warn|error")
-	timeout  = flag.Duration("timeout", 10*time.Second, "proxy check timeout (e.g. 10s, 1m)")
+	timeout  = flag.Duration("timeout", 6*time.Second, "proxy check timeout (e.g. 10s, 1m)")
 	workers  = flag.Int("workers", runtime.NumCPU()*3, "number of concurrent workers")
 	pipeline = flag.Bool("pipeline", false, "start all checks")
-	shuf     = flag.Bool("shuf", false, "shuffle input lines")
+	shuf     = flag.Bool("shuf", true, "shuffle input lines")
 	parse    = flag.Bool("parse", false, "parse only url don't send requests")
 	chars    = flag.Int("chars", 8192, "max chars in one line")
+	load     = flag.Bool("load", true, "download source files")
 )
 
 func main() {
@@ -60,11 +64,30 @@ func main() {
 		"input", *in, "out", *out, "level", parsedLevel.String(), "timeout", timeout.String(), "workers", *workers)
 
 	_krot := krot.New(*timeout, *parse, *chars, *shuf)
+	if *load {
+		if err := errors.Join(
+			loader.SaveVless("vless.txt"),
+			loader.SaveVlessSmall("vless_small.txt"),
+			loader.SaveMtproto("mtproto.txt", nil),
+		); err != nil {
+			fatal(5, err)
+		}
+
+		k := krot.New(*timeout, true, *chars, *shuf)
+		if err := errors.Join(
+			k.Run("vless.txt", "vless.txt", *workers),
+			k.Run("vless_small.txt", "vless_small.txt", *workers),
+			k.Run("mtproto.txt", "mtproto.txt", *workers),
+		); err != nil {
+			fatal(5, err)
+		}
+
+		return
+	}
 
 	if *pipeline {
 		if err := _krot.Pipeline(*workers); err != nil {
-			slog.Error("fatal error", "error", err)
-			os.Exit(5)
+			fatal(5, err)
 		}
 		return
 	}
@@ -73,7 +96,12 @@ func main() {
 		*out = krot.ToOutname(*in)
 	}
 	if err := _krot.Run(*in, *out, *workers); err != nil {
-		slog.Error("fatal error", "error", err)
-		os.Exit(5)
+		fatal(5, err)
 	}
+}
+
+func fatal(code int, err error) {
+	slog.Error("fatal error", "error", err)
+	fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
+	os.Exit(code)
 }

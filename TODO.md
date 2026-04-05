@@ -1,2 +1,2 @@
 - [x] Add support for all protocols vmess:// ss:// trojan:// ...
-- [ ] Add -load for download all and small lists
+- [x] Add -load for download all and small lists

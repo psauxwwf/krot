@@ -35,57 +35,6 @@ tasks:
       - mkdir -p {{.tmp_dir}}
       - task: setup:xray-checker
 
-  vless:
-    desc: download and merge vless githubmirror files
-    deps:
-      - build:linux
-    cmds:
-      - mkdir -p {{.tmp_dir}}
-      - |
-        for i in $(seq 1 26); do
-          curl -fsSL -o "{{.tmp_dir}}/vless_${i}.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/${i}.txt"
-        done
-        wait
-      - task: vless:merge
-        vars:
-          input_glob: "{{.tmp_dir}}/vless_*.txt"
-          out: "vless.txt"
-
-  vless:small:
-    desc: download small vless file
-    deps:
-      - build:linux
-    cmds:
-      - mkdir -p {{.tmp_dir}}
-      - |
-        curl -fsSL -o "{{.tmp_dir}}/vless_1.txt" "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt"
-        curl -fsSL -o "{{.tmp_dir}}/vless_2.txt" "https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/26.txt"
-        wait
-      - task: vless:merge
-        vars:
-          input_glob: "{{.tmp_dir}}/vless_*.txt"
-          out: "vless_small.txt"
-
-  vless:merge:
-    desc: merge and parse vless source files
-    internal: true
-    requires:
-      vars:
-        - input_glob
-        - out
-    cmds:
-      - sort -u {{.input_glob}} > {{.tmp_dir}}/vless.txt
-      - |
-        {{.app_bin}} -in={{.tmp_dir}}/vless.txt -out={{.bin}}/{{.out}} -parse -level=error -workers=80
-      - rm -f {{.input_glob}} {{.tmp_dir}}/vless.txt
-
-  mtproto:
-    desc: download mtproto source files
-    deps:
-      - setup
-    cmds:
-      - curl -fsSL -o {{.bin}}/mtproto.txt "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
-
   setup:xray-checker:
     desc: clone xray-checker if missing
     internal: true
@@ -146,6 +95,13 @@ tasks:
         -asmflags="{{.asmflags}}"
         -o {{.app_termux_bin}} cmd/{{.app}}/main.go
 
+  load:
+    desc: load source files
+    dir: "{{.bin}}"
+    cmds:
+      - |
+        {{.app_bin}} -load
+
   release:pack:
     desc: create release archives
     internal: true
@@ -158,9 +114,7 @@ tasks:
     deps:
       - build
     cmds:
-      - task: vless
-      - task: vless:small
-      - task: mtproto
+      - task: load
       - task: release:pack
 
   release:create:
