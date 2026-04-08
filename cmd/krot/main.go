@@ -24,7 +24,7 @@ var (
 	shuf     = flag.Bool("shuf", true, "shuffle input lines")
 	parse    = flag.Bool("parse", false, "parse only url don't send requests")
 	chars    = flag.Int("chars", 8192, "max chars in one line")
-	load     = flag.Bool("load", true, "download source files")
+	load     = flag.Bool("load", false, "download source files")
 )
 
 func main() {
