@@ -46,7 +46,7 @@ func New(_timeout time.Duration, _parseOnly bool, _maxChars int, _shuffle bool) 
 }
 
 func ToOutname(in string) string {
-	return fmt.Sprintf("%s_%s", time.Now().Format("02.01.2006_15:04"), filepath.Base(in))
+	return fmt.Sprintf("%s_%s", time.Now().Format("02.01.2006_15_04"), filepath.Base(in))
 }
 
 func (k *Krot) Pipeline(workers int) error {
