@@ -17,11 +17,9 @@ import (
 )
 
 func Check(uri string, timeout time.Duration, parseOnly bool) error {
-	slog.Debug("mtproto: parse proxy URI")
-
 	proxyAddr, secret, err := parseProxyURI(uri)
 	if err != nil {
-		slog.Warn("mtproto: invalid proxy URI", "error", err)
+		slog.Debug("mtproto: invalid proxy URI", "error", err)
 		return err
 	}
 	slog.Debug("mtproto: parsed proxy URI", "addr", proxyAddr, "secret_len", len(secret))
@@ -34,7 +32,7 @@ func Check(uri string, timeout time.Duration, parseOnly bool) error {
 	slog.Debug("mtproto: creating resolver", "addr", proxyAddr)
 	resolver, err := dcs.MTProxy(proxyAddr, secret, dcs.MTProxyOptions{Dial: dialer.DialContext})
 	if err != nil {
-		slog.Warn("mtproto: resolver creation failed", "addr", proxyAddr, "error", err)
+		slog.Debug("mtproto: resolver creation failed", "addr", proxyAddr, "error", err)
 		return fmt.Errorf("invalid proxy config: %w", err)
 	}
 
@@ -58,11 +56,11 @@ func Check(uri string, timeout time.Duration, parseOnly bool) error {
 	select {
 	case err := <-runErrCh:
 		if err != nil {
-			slog.Warn("mtproto: proxy check failed", "addr", proxyAddr, "error", err)
+			slog.Debug("mtproto: proxy check failed", "addr", proxyAddr, "error", err)
 			return fmt.Errorf("proxy check failed: %w", err)
 		}
 	case <-time.After(timeout):
-		slog.Warn("mtproto: proxy check timeout", "addr", proxyAddr, "timeout", timeout)
+		slog.Debug("mtproto: proxy check timeout", "addr", proxyAddr, "timeout", timeout)
 		return fmt.Errorf("proxy check timeout after %s", timeout)
 	}
 	slog.Info("mtproto: proxy verified", "addr", proxyAddr)
@@ -71,6 +69,8 @@ func Check(uri string, timeout time.Duration, parseOnly bool) error {
 }
 
 func parseProxyURI(rawURI string) (string, []byte, error) {
+	rawURI = strings.TrimSpace(strings.SplitN(rawURI, ")", 2)[0])
+
 	u, err := url.Parse(rawURI)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid proxy URL: %w", err)
