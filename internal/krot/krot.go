@@ -113,7 +113,7 @@ func (k *Krot) Run(in, out string, workers int) error {
 		if r.err != nil {
 			fail++
 			_print()
-			slog.Warn("proxy check failed", "line", r.line, "uri", r.uri, "error", r.err)
+			slog.Debug("proxy check failed", "line", r.line, "uri", r.uri, "error", r.err)
 			continue
 		}
 

@@ -1,107 +1,201 @@
 package main
 
 import (
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
+
+	"github.com/charmbracelet/fang"
+	"github.com/spf13/cobra"
 
 	"krot/internal/krot"
 
 	"krot/pkg/loader"
 )
 
-var (
-	in       = flag.String("in", "vless.txt", "input file")
-	out      = flag.String("out", "", "output file")
-	level    = flag.String("level", "info", "log level: debug|info|warn|error")
-	timeout  = flag.Duration("timeout", 6*time.Second, "proxy check timeout (e.g. 10s, 1m)")
-	workers  = flag.Int("workers", runtime.NumCPU()*3, "number of concurrent workers")
-	pipeline = flag.Bool("pipeline", false, "start all checks")
-	shuf     = flag.Bool("shuf", true, "shuffle input lines")
-	parse    = flag.Bool("parse", false, "parse only url don't send requests")
-	chars    = flag.Int("chars", 8192, "max chars in one line")
-	load     = flag.Bool("load", false, "download source files")
+type options struct {
+	in       string
+	out      string
+	log      string
+	level    string
+	timeout  time.Duration
+	workers  int
+	pipeline bool
+	shuf     bool
+	parse    bool
+	chars    int
+	load     bool
+}
+
+const (
+	_ int = iota
+	initCode
+	fatalCode
 )
 
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+
+	return e.err.Error()
+}
+
+func (e *exitError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+
+	return e.err
+}
+
+func newExitError(code int, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return &exitError{code: code, err: err}
+}
+
 func main() {
-	flag.Parse()
-
-	var parsedLevel slog.Level
-	if err := parsedLevel.UnmarshalText([]byte(*level)); err != nil {
-		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *level, err)
-		os.Exit(1)
-	}
-	if *timeout <= 0 {
-		fmt.Fprintf(os.Stderr, "invalid timeout %q: must be > 0\n", timeout.String())
-		os.Exit(2)
-	}
-	if *workers <= 0 {
-		fmt.Fprintf(os.Stderr, "invalid workers %d: must be > 0\n", *workers)
-		os.Exit(3)
-	}
-
-	logFile, err := os.OpenFile("krot.json", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
-		os.Exit(4)
-	}
-	defer logFile.Close()
-
-	log := slog.New(
-		slog.NewMultiHandler(
-			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-				AddSource: true,
-				Level:     parsedLevel,
-			}),
-		),
-	)
-	slog.SetDefault(log)
-	slog.Info("starting proxy checker",
-		"input", *in, "out", *out, "level", parsedLevel.String(), "timeout", timeout.String(), "workers", *workers)
-
-	_krot := krot.New(*timeout, *parse, *chars, *shuf)
-	if *load {
-		if err := errors.Join(
-			loader.SaveVless("vless.txt"),
-			loader.SaveVlessSmall("vless_small.txt"),
-			loader.SaveMtproto("mtproto.txt", nil),
-		); err != nil {
-			fatal(5, err)
+	if err := fang.Execute(context.Background(), rootCmd(), fang.WithoutVersion()); err != nil {
+		if err, ok := errors.AsType[*exitError](err); ok {
+			fmt.Fprintln(os.Stderr, err.err)
+			os.Exit(err.code)
 		}
 
-		k := krot.New(*timeout, true, *chars, *shuf)
-		if err := errors.Join(
-			k.Run("vless.txt", "vless.txt", *workers),
-			k.Run("vless_small.txt", "vless_small.txt", *workers),
-			k.Run("mtproto.txt", "mtproto.txt", *workers),
-		); err != nil {
-			fatal(5, err)
-		}
-
-		return
-	}
-
-	if *pipeline {
-		if err := _krot.Pipeline(*workers); err != nil {
-			fatal(5, err)
-		}
-		return
-	}
-
-	if *out == "" {
-		*out = krot.ToOutname(*in)
-	}
-	if err := _krot.Run(*in, *out, *workers); err != nil {
-		fatal(5, err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(fatalCode)
 	}
 }
 
-func fatal(code int, err error) {
-	slog.Error("fatal error", "error", err)
-	fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
-	os.Exit(code)
+func rootCmd() *cobra.Command {
+	opts := options{}
+
+	rootCmd := &cobra.Command{
+		Use:           "krot",
+		Short:         "Concurrent proxy checker",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return newExitError(initCode, configureLogger(opts.level, opts.log))
+		},
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if err := validateOptions(opts); err != nil {
+				return newExitError(initCode, err)
+			}
+
+			slog.Info("starting proxy checker",
+				"input", opts.in,
+				"out", opts.out,
+				"level", opts.level,
+				"timeout", opts.timeout.String(),
+				"workers", opts.workers,
+			)
+
+			checker := krot.New(opts.timeout, opts.parse, opts.chars, opts.shuf)
+			if opts.load {
+				if err := errors.Join(
+					loader.SaveVless("vless.txt"),
+					loader.SaveVlessSmall("vless_small.txt"),
+					loader.SaveMtproto("mtproto.txt", nil),
+				); err != nil {
+					return newExitError(fatalCode, err)
+				}
+
+				parseChecker := krot.New(opts.timeout, true, opts.chars, opts.shuf)
+				if err := errors.Join(
+					parseChecker.Run("vless.txt", "vless.txt", opts.workers*3),
+					parseChecker.Run("vless_small.txt", "vless_small.txt", opts.workers*3),
+					parseChecker.Run("mtproto.txt", "mtproto.txt", opts.workers*3),
+				); err != nil {
+					return newExitError(fatalCode, err)
+				}
+
+				return nil
+			}
+
+			if opts.pipeline {
+				return newExitError(fatalCode, checker.Pipeline(opts.workers))
+			}
+
+			out := opts.out
+			if out == "" {
+				out = krot.ToOutname(opts.in)
+			}
+
+			return newExitError(fatalCode, checker.Run(opts.in, out, opts.workers))
+		},
+	}
+
+	rootCmd.Flags().StringVar(&opts.in, "in", "", "input file")
+	rootCmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	rootCmd.Flags().StringVar(&opts.log, "log", "", "log file path")
+	rootCmd.Flags().StringVar(&opts.level, "level", "info", "log level: debug|info|warn|error")
+	rootCmd.Flags().DurationVar(&opts.timeout, "timeout", 6*time.Second, "proxy check timeout (e.g. 10s, 1m)")
+	rootCmd.Flags().IntVar(&opts.workers, "workers", runtime.NumCPU()*3, "number of concurrent workers")
+	rootCmd.Flags().BoolVar(&opts.pipeline, "pipeline", false, "start all checks")
+	rootCmd.Flags().BoolVar(&opts.shuf, "shuf", true, "shuffle input lines")
+	rootCmd.Flags().BoolVar(&opts.parse, "parse", false, "parse only url don't send requests")
+	rootCmd.Flags().IntVar(&opts.chars, "chars", 4096, "max chars in one line")
+	rootCmd.Flags().BoolVar(&opts.load, "load", false, "download source files")
+
+	return rootCmd
+}
+
+func validateOptions(opts options) error {
+	if opts.timeout <= 0 {
+		return fmt.Errorf("invalid timeout %q: must be > 0", opts.timeout.String())
+	}
+	if opts.workers <= 0 {
+		return fmt.Errorf("invalid workers %d: must be > 0", opts.workers)
+	}
+
+	return nil
+}
+
+func configureLogger(levelText, logPath string) error {
+	var parsedLevel slog.Level
+	if err := parsedLevel.UnmarshalText([]byte(levelText)); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", levelText, err)
+	}
+
+	stdoutHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: parsedLevel,
+	})
+
+	if strings.TrimSpace(logPath) == "" {
+		slog.SetDefault(slog.New(stdoutHandler))
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create log dir for %q: %w", logPath, err)
+	}
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file %q: %w", logPath, err)
+	}
+
+	slog.SetDefault(slog.New(slog.NewMultiHandler(
+		stdoutHandler,
+		slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+			AddSource: true,
+			Level:     parsedLevel,
+		}),
+	)))
+
+	return nil
 }

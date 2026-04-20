@@ -100,7 +100,7 @@ tasks:
     dir: "{{.bin}}"
     cmds:
       - |
-        {{.app_bin}} -load
+        {{.app_bin}} --load
 
   release:pack:
     desc: create release archives
@@ -124,4 +124,4 @@ tasks:
     cmds:
       - |
         TAG=$(date +v%m.%d.%H)
-        gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}}
+        gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}} {{.bin}}/mtproto.txt {{.bin}}/vless.txt {{.bin}}/vless_small.txt

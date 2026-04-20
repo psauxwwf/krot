@@ -49,6 +49,8 @@ var (
 		"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt",
 		"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt",
 		"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt",
+		"https://raw.githubusercontent.com/V2RayRoot/V2RayConfig/refs/heads/main/Config/vmess.txt",
+		"https://raw.githubusercontent.com/V2RayRoot/V2RayConfig/refs/heads/main/Config/shadowsocks.txt",
 	}
 
 	VlessSmall = []string{
@@ -66,6 +68,14 @@ var (
 
 	Mtproto = []string{
 		"https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
+		"https://raw.githubusercontent.com/DepMSK37/proxy-list/refs/heads/main/verified/proxy_all_verified.txt",
+		"https://raw.githubusercontent.com/devho3ein/tg-proxy/refs/heads/main/proxys/All_Proxys.txt",
+		"https://raw.githubusercontent.com/V2RayRoot/V2RayConfig/refs/heads/main/Config/proxies.txt",
+		"https://raw.githubusercontent.com/FLAT447/v2ray-lists/refs/heads/main/blacklist.txt",
+		"https://raw.githubusercontent.com/FLAT447/v2ray-lists/refs/heads/main/whitelist.txt",
+		"https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTPS.txt",
+		"https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/MTProto.txt",
+		"https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/proxy_all.txt",
 	}
 )
 
@@ -116,7 +126,6 @@ func Load(urls ...string) ([]string, error) {
 			slog.Error("failed to parse source", "url", sourceURL, "error", err)
 			return result, err
 		}
-		fmt.Fprintf(os.Stderr, "loaded url: %s\n", sourceURL)
 		slog.Info("source loaded", "url", sourceURL, "unique_total", len(result))
 	}
 	slog.Info("finished urls load", "unique_total", len(result))
