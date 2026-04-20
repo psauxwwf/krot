@@ -49,12 +49,18 @@ func ToOutname(in string) string {
 	return fmt.Sprintf("%s_%s", time.Now().Format("02.01.2006_15_04"), filepath.Base(in))
 }
 
-func (k *Krot) Pipeline(workers int) error {
-	return errors.Join(
-		k.Run("mtproto.txt", ToOutname("mtproto.txt"), workers),
-		k.Run("vless.txt", ToOutname("vless.txt"), workers),
-		k.Run("vless_small.txt", ToOutname("vless.txt"), workers),
-	)
+func (k *Krot) Pipeline(workers int, urls map[string][]string) error {
+	loadFiles := make(map[string][]string, len(urls))
+	for key, list := range urls {
+		loadFiles[key+".txt"] = list
+	}
+
+	errList := make([]error, 0, len(loadFiles))
+	for in := range loadFiles {
+		errList = append(errList, k.Run(in, ToOutname(in), workers))
+	}
+
+	return errors.Join(errList...)
 }
 
 func (k *Krot) Run(in, out string, workers int) error {

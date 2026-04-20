@@ -7,36 +7,22 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
+	"krot/config/config"
 	"krot/internal/krot"
 
 	"krot/pkg/loader"
 )
 
-type options struct {
-	in       string
-	out      string
-	log      string
-	level    string
-	timeout  time.Duration
-	workers  int
-	pipeline bool
-	shuf     bool
-	parse    bool
-	chars    int
-	load     bool
-}
-
 const (
 	_ int = iota
 	initCode
 	fatalCode
+	inputCode
 )
 
 type exitError struct {
@@ -81,85 +67,117 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
-	opts := options{}
+	defaults := config.Default()
+
+	var (
+		confPath = "krot.yaml"
+		_config  *config.Config
+	)
 
 	rootCmd := &cobra.Command{
 		Use:           "krot",
 		Short:         "Concurrent proxy checker",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			return newExitError(initCode, configureLogger(opts.level, opts.log))
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			var err error
+			_config, err = config.FromCobra(confPath, cmd)
+			if err != nil {
+				return newExitError(initCode, err)
+			}
+
+			return newExitError(initCode, configureLogger(_config.Runtime.Level, _config.Runtime.Log))
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if err := validateOptions(opts); err != nil {
+			if err := validateConfig(_config); err != nil {
 				return newExitError(initCode, err)
 			}
 
 			slog.Info("starting proxy checker",
-				"input", opts.in,
-				"out", opts.out,
-				"level", opts.level,
-				"timeout", opts.timeout.String(),
-				"workers", opts.workers,
+				"input", _config.Runtime.In,
+				"out", _config.Runtime.Out,
+				"level", _config.Runtime.Level,
+				"timeout", _config.Runtime.Timeout.String(),
+				"workers", _config.Runtime.Workers,
 			)
 
-			checker := krot.New(opts.timeout, opts.parse, opts.chars, opts.shuf)
-			if opts.load {
-				if err := errors.Join(
-					loader.SaveVless("vless.txt"),
-					loader.SaveVlessSmall("vless_small.txt"),
-					loader.SaveMtproto("mtproto.txt", nil),
-				); err != nil {
-					return newExitError(fatalCode, err)
+			checker := krot.New(_config.Runtime.Timeout, _config.Runtime.Parse, _config.Runtime.Chars, _config.Runtime.Shuf)
+			if _config.Runtime.Load {
+				loadFiles := make(map[string][]string, len(_config.Urls))
+				for key, urls := range _config.Urls {
+					loadFiles[key+".txt"] = urls
 				}
 
-				parseChecker := krot.New(opts.timeout, true, opts.chars, opts.shuf)
-				if err := errors.Join(
-					parseChecker.Run("vless.txt", "vless.txt", opts.workers*3),
-					parseChecker.Run("vless_small.txt", "vless_small.txt", opts.workers*3),
-					parseChecker.Run("mtproto.txt", "mtproto.txt", opts.workers*3),
-				); err != nil {
-					return newExitError(fatalCode, err)
+				saveErrs := make([]error, 0, len(loadFiles))
+				for filename, urls := range loadFiles {
+					saveErrs = append(saveErrs, loader.Save(filename, urls))
+				}
+				if err := errors.Join(saveErrs...); err != nil {
+					slog.Error("failed to save one or more url files", "error", err)
+				}
+
+				parseChecker := krot.New(_config.Runtime.Timeout, true, _config.Runtime.Chars, _config.Runtime.Shuf)
+				parseErrs := make([]error, 0, len(loadFiles))
+				for filename := range loadFiles {
+					parseErrs = append(parseErrs, parseChecker.Run(filename, filename, _config.Runtime.Workers*3))
+				}
+				if err := errors.Join(parseErrs...); err != nil {
+					slog.Error("failed to parse one or more url files", "error", err)
 				}
 
 				return nil
 			}
 
-			if opts.pipeline {
-				return newExitError(fatalCode, checker.Pipeline(opts.workers))
+			if _config.Runtime.In == "" {
+				return newExitError(inputCode, fmt.Errorf("source file not set: use runtime.in or --in"))
 			}
 
-			out := opts.out
+			if _config.Runtime.Pipeline {
+				return newExitError(fatalCode, checker.Pipeline(_config.Runtime.Workers, _config.Urls))
+			}
+
+			out := _config.Runtime.Out
 			if out == "" {
-				out = krot.ToOutname(opts.in)
+				out = krot.ToOutname(_config.Runtime.In)
 			}
 
-			return newExitError(fatalCode, checker.Run(opts.in, out, opts.workers))
+			return newExitError(fatalCode, checker.Run(_config.Runtime.In, out, _config.Runtime.Workers))
 		},
 	}
 
-	rootCmd.Flags().StringVar(&opts.in, "in", "", "input file")
-	rootCmd.Flags().StringVar(&opts.out, "out", "", "output file")
-	rootCmd.Flags().StringVar(&opts.log, "log", "", "log file path")
-	rootCmd.Flags().StringVar(&opts.level, "level", "info", "log level: debug|info|warn|error")
-	rootCmd.Flags().DurationVar(&opts.timeout, "timeout", 6*time.Second, "proxy check timeout (e.g. 10s, 1m)")
-	rootCmd.Flags().IntVar(&opts.workers, "workers", runtime.NumCPU()*3, "number of concurrent workers")
-	rootCmd.Flags().BoolVar(&opts.pipeline, "pipeline", false, "start all checks")
-	rootCmd.Flags().BoolVar(&opts.shuf, "shuf", true, "shuffle input lines")
-	rootCmd.Flags().BoolVar(&opts.parse, "parse", false, "parse only url don't send requests")
-	rootCmd.Flags().IntVar(&opts.chars, "chars", 4096, "max chars in one line")
-	rootCmd.Flags().BoolVar(&opts.load, "load", false, "download source files")
+	rootCmd.Flags().StringVar(&confPath, "config", "krot.yaml", "path to config file")
+	rootCmd.Flags().String("in", defaults.Runtime.In, "input file")
+	rootCmd.Flags().String("out", defaults.Runtime.Out, "output file")
+	rootCmd.Flags().String("log", defaults.Runtime.Log, "log file path")
+	rootCmd.Flags().String("level", defaults.Runtime.Level, "log level: debug|info|warn|error")
+	rootCmd.Flags().Duration("timeout", defaults.Runtime.Timeout, "proxy check timeout (e.g. 10s, 1m)")
+	rootCmd.Flags().Int("workers", defaults.Runtime.Workers, "number of concurrent workers")
+	rootCmd.Flags().Bool("pipeline", defaults.Runtime.Pipeline, "start all checks")
+	rootCmd.Flags().Bool("shuf", defaults.Runtime.Shuf, "shuffle input lines")
+	rootCmd.Flags().Bool("parse", defaults.Runtime.Parse, "parse only url don't send requests")
+	rootCmd.Flags().Int("chars", defaults.Runtime.Chars, "max chars in one line")
+	rootCmd.Flags().Bool("load", defaults.Runtime.Load, "download source files")
 
 	return rootCmd
 }
 
-func validateOptions(opts options) error {
-	if opts.timeout <= 0 {
-		return fmt.Errorf("invalid timeout %q: must be > 0", opts.timeout.String())
+func validateConfig(_config *config.Config) error {
+	if _config.Runtime.Timeout <= 0 {
+		return fmt.Errorf("invalid timeout %q: must be > 0", _config.Runtime.Timeout.String())
 	}
-	if opts.workers <= 0 {
-		return fmt.Errorf("invalid workers %d: must be > 0", opts.workers)
+	if _config.Runtime.Workers <= 0 {
+		return fmt.Errorf("invalid workers %d: must be > 0", _config.Runtime.Workers)
+	}
+	if _config.Runtime.Load {
+		if len(_config.Urls["vless"]) == 0 {
+			return fmt.Errorf("urls.vless is empty")
+		}
+		if len(_config.Urls["vless_small"]) == 0 {
+			return fmt.Errorf("urls.vless_small is empty")
+		}
+		if len(_config.Urls["mtproto"]) == 0 {
+			return fmt.Errorf("urls.mtproto is empty")
+		}
 	}
 
 	return nil
