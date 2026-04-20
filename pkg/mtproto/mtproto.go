@@ -30,9 +30,6 @@ func Check(uri string, timeout time.Duration, parseOnly bool) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
 	dialer := &net.Dialer{Timeout: timeout}
 	slog.Debug("mtproto: creating resolver", "addr", proxyAddr)
 	resolver, err := dcs.MTProxy(proxyAddr, secret, dcs.MTProxyOptions{Dial: dialer.DialContext})
@@ -42,15 +39,31 @@ func Check(uri string, timeout time.Duration, parseOnly bool) error {
 	}
 
 	client := telegram.NewClient(telegram.TestAppID, telegram.TestAppHash, telegram.Options{
-		Resolver: resolver,
+		Resolver:        resolver,
+		DialTimeout:     timeout,
+		ExchangeTimeout: timeout,
+		// MaxRetries:      1,
+		// RetryInterval:   100 * time.Millisecond,
 	})
 	slog.Debug("mtproto: starting nearest DC request", "addr", proxyAddr)
-	if err := client.Run(ctx, func(ctx context.Context) error {
-		_, err := client.API().HelpGetNearestDC(ctx)
-		return err
-	}); err != nil {
-		slog.Warn("mtproto: proxy check failed", "addr", proxyAddr, "error", err)
-		return fmt.Errorf("proxy check failed: %w", err)
+
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- client.Run(context.Background(), func(ctx context.Context) error {
+			_, err := client.API().HelpGetNearestDC(ctx)
+			return err
+		})
+	}()
+
+	select {
+	case err := <-runErrCh:
+		if err != nil {
+			slog.Warn("mtproto: proxy check failed", "addr", proxyAddr, "error", err)
+			return fmt.Errorf("proxy check failed: %w", err)
+		}
+	case <-time.After(timeout):
+		slog.Warn("mtproto: proxy check timeout", "addr", proxyAddr, "timeout", timeout)
+		return fmt.Errorf("proxy check timeout after %s", timeout)
 	}
 	slog.Info("mtproto: proxy verified", "addr", proxyAddr)
 
