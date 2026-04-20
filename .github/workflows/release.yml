@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+  schedule:
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       branch:
@@ -64,3 +66,6 @@ jobs:
           files: |
             ./bin/${{ github.event.repository.name }}_linux_amd64.tar.gz
             ./bin/${{ github.event.repository.name }}_android_arm64_termux.tar.gz
+            ./bin/mtproto.txt
+            ./bin/vless.txt
+            ./bin/vless_small.txt
