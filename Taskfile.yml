@@ -125,3 +125,10 @@ tasks:
       - |
         TAG=$(date +v%m.%d.%H)
         gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}} {{.bin}}/mtproto.txt {{.bin}}/vless.txt {{.bin}}/vless_small.txt
+
+  pipeline:
+    desc: run pipeline for load creds
+    deps:
+      - build:linux
+    cmds:
+      - task: load
