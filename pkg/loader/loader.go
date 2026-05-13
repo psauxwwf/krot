@@ -22,58 +22,70 @@ func Load(urls ...string) ([]string, error) {
 	}
 	slog.Info("starting urls load", "sources", len(urls))
 
-	client := &http.Client{Timeout: loadTimeout}
-	result := make([]string, 0)
+	var (
+		client = &http.Client{Timeout: loadTimeout}
+		result = make([]string, 0)
+	)
 
 	for _, sourceURL := range urls {
-		slog.Debug("loading source", "url", sourceURL)
-		req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
+		lines, err := loadSource(client, sourceURL)
 		if err != nil {
-			return result, fmt.Errorf("failed to build request for %s: %w", sourceURL, err)
-		}
-		req.Header.Set("User-Agent", loadUserAgent)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			slog.Error("failed to load source", "url", sourceURL, "error", err)
-			return result, fmt.Errorf("failed to load %s: %w", sourceURL, err)
+			slog.Error("failed to process source", "url", sourceURL, "error", err)
+			continue
 		}
 
-		err = func() error {
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("failed to load %s: status %s", sourceURL, resp.Status)
+		for _, line := range lines {
+			if slices.Contains(result, line) {
+				continue
 			}
-
-			scanner := bufio.NewScanner(resp.Body)
-			scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-			for scanner.Scan() {
-				line := strings.TrimSpace(scanner.Text())
-				if line == "" {
-					continue
-				}
-
-				if slices.Contains(result, line) {
-					continue
-				}
-
-				result = append(result, line)
-			}
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("failed to read %s: %w", sourceURL, err)
-			}
-
-			return nil
-		}()
-		if err != nil {
-			slog.Error("failed to parse source", "url", sourceURL, "error", err)
-			return result, err
+			result = append(result, line)
 		}
+
 		slog.Info("source loaded", "url", sourceURL, "unique_total", len(result))
 	}
 	slog.Info("finished urls load", "unique_total", len(result))
 
 	return result, nil
+}
+
+func loadSource(client *http.Client, sourceURL string) ([]string, error) {
+	slog.Debug("loading source", "url", sourceURL)
+
+	req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request for %s: %w", sourceURL, err)
+	}
+	req.Header.Set("User-Agent", loadUserAgent)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load source %s: %w", sourceURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to load %s: status %s", sourceURL, resp.Status)
+	}
+
+	lines := make([]string, 0)
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		if slices.Contains(lines, line) {
+			continue
+		}
+
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", sourceURL, err)
+	}
+	return lines, nil
 }
 
 func Save(out string, urls []string) error {
