@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const loadTimeout = 2 * time.Minute
+const (
+	loadTimeout   = 1 * time.Minute
+	loadUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0"
+)
 
 func Load(urls ...string) ([]string, error) {
 	if len(urls) == 0 {
@@ -24,7 +27,13 @@ func Load(urls ...string) ([]string, error) {
 
 	for _, sourceURL := range urls {
 		slog.Debug("loading source", "url", sourceURL)
-		resp, err := client.Get(sourceURL)
+		req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
+		if err != nil {
+			return result, fmt.Errorf("failed to build request for %s: %w", sourceURL, err)
+		}
+		req.Header.Set("User-Agent", loadUserAgent)
+
+		resp, err := client.Do(req)
 		if err != nil {
 			slog.Error("failed to load source", "url", sourceURL, "error", err)
 			return result, fmt.Errorf("failed to load %s: %w", sourceURL, err)
