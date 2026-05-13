@@ -70,6 +70,7 @@ func rootCmd() *cobra.Command {
 	defaults := config.Default()
 
 	var (
+		saveConf bool
 		confPath = "krot.yaml"
 		_config  *config.Config
 	)
@@ -89,6 +90,15 @@ func rootCmd() *cobra.Command {
 			return newExitError(initCode, configureLogger(_config.Runtime.Level, _config.Runtime.Log))
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
+			if saveConf {
+				if err := config.SaveConfig(confPath, _config); err != nil {
+					return newExitError(fatalCode, fmt.Errorf("failed to save config %q: %w", confPath, err))
+				}
+
+				slog.Info("config saved", "path", confPath)
+				return nil
+			}
+
 			if err := validateConfig(_config); err != nil {
 				return newExitError(initCode, err)
 			}
@@ -146,6 +156,7 @@ func rootCmd() *cobra.Command {
 	}
 
 	rootCmd.Flags().StringVar(&confPath, "config", "krot.yaml", "path to config file")
+	rootCmd.Flags().BoolVar(&saveConf, "save", false, "save resolved config to --config and exit")
 	rootCmd.Flags().String("in", defaults.Runtime.In, "input file")
 	rootCmd.Flags().String("out", defaults.Runtime.Out, "output file")
 	rootCmd.Flags().String("log", defaults.Runtime.Log, "log file path")

@@ -144,6 +144,14 @@ func Save(filename string) error {
 	return save(Default(), filename)
 }
 
+func SaveConfig(filename string, cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	return save(cfg, filename)
+}
+
 func New(filename string) (*Config, error) {
 	_config := Default()
 
