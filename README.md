@@ -9,6 +9,16 @@ Supported formats:
 - MTProto links: `tg://proxy?...`, `https://t.me/proxy?...`, `https://www.t.me/proxy?...`
 - Xray-compatible URI schemes: `vless://`, `vmess://`, `trojan://`, `ss://`
 
+## Sub
+
+```ini
+https://github.com/psauxwwf/krot/releases/latest/download/vless_small.txt
+```
+
+```ini
+https://github.com/psauxwwf/krot/releases/latest/download/vless.txt
+```
+
 ## What It Does
 
 - MTProto checks use a real Telegram API call (`help.getNearestDc`)
