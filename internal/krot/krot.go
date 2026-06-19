@@ -22,7 +22,6 @@ type Krot struct {
 	timeout   time.Duration
 	parseOnly bool
 	maxChars  int
-	shuffle   bool
 }
 
 type job struct {
@@ -36,12 +35,11 @@ type result struct {
 	err  error
 }
 
-func New(_timeout time.Duration, _parseOnly bool, _maxChars int, _shuffle bool) *Krot {
+func New(_timeout time.Duration, _parseOnly bool, _maxChars int) *Krot {
 	return &Krot{
 		timeout:   _timeout,
 		parseOnly: _parseOnly,
 		maxChars:  _maxChars,
-		shuffle:   _shuffle,
 	}
 }
 
@@ -81,11 +79,9 @@ func (k *Krot) Run(in, out string, workers int) error {
 	}
 	defer _out.Close()
 
-	if k.shuffle {
-		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(jobs), func(i, j int) {
-			jobs[i], jobs[j] = jobs[j], jobs[i]
-		})
-	}
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(jobs), func(i, j int) {
+		jobs[i], jobs[j] = jobs[j], jobs[i]
+	})
 
 	jobsch := make(chan job)
 	resch := make(chan result)

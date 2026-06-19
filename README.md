@@ -25,9 +25,9 @@ https://github.com/psauxwwf/krot/releases/latest/download/vless.txt
 - `vless/vmess/trojan/ss` checks run local Xray and probe connectivity via local SOCKS5
 - Supports high concurrency with worker pool
 - Skips empty lines and `#` comments
-- Optional shuffle for input lines before checking
+- Always shuffles input lines before checking
 - Optional parse-only mode (URI parse/validate only, without network checks)
-- Logs to `stdout` by default; optionally duplicates JSON logs to a file via `--log`
+- Logs to `stdout` by default; optionally duplicates JSON logs to a file via `--log-path`
 
 ## Build
 
@@ -41,29 +41,34 @@ Termux/Android ARM64 build:
 task build:termux
 ```
 
-## Flags
+## Commands
 
-All available CLI flags from `cmd/krot/main.go`:
+Available commands:
 
-- `--in` (default: empty) - input file (required for normal mode)
+- `krot` - check proxies from one input file
+- `krot parse` - parse/validate proxies from one input file without network checks
+- `krot load` - download source lists from `urls.yaml` and then parse/validate them
+- `krot pipeline` - run built-in checks for `mtproto.txt`, `vless.txt`, `vless_small.txt`
+- `krot save` - save default URL lists to `urls.yaml`
+
+Common flags:
+
+- `--urls` (default: `urls.yaml`) - path to YAML file with source URL lists
+- `--in` (default: empty) - input file
 - `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
-- `--log` (default: empty) - optional path for JSON log file (logs still go to `stdout`)
-- `--level` (default: `info`) - log level: `debug|info|warn|error`
+- `--log-path` (default: empty) - optional path for JSON log file (logs still go to `stdout`)
+- `--log-level` (default: `info`) - log level: `debug|info|warn|error`
 - `--timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
 - `--workers` (default: `runtime.NumCPU()*3`) - number of concurrent workers
-- `--pipeline` (default: `false`) - run built-in pipeline checks for `mtproto.txt`, `vless.txt`, `vless_small.txt`
-- `--shuf` (default: `true`) - shuffle input lines before processing
-- `--parse` (default: `false`) - parse/validate only, without outbound requests
 - `--chars` (default: `4096`) - max characters allowed in one input line
-- `--load` (default: `false`) - download source lists into local files and then run parse validation on them
 
 ## Modes
 
-`krot` currently works in three practical modes.
+`krot` currently works in four practical modes.
 
 ### 1) Normal mode (single file check)
 
-Default mode when `--load=false` and `--pipeline=false`.
+Default mode for checking one file with real connectivity tests.
 
 ```bash
 ./bin/krot --in vless.txt --out ok.txt --workers 24 --timeout 8s
@@ -73,7 +78,17 @@ Default mode when `--load=false` and `--pipeline=false`.
 
 If `--out` is not set, output filename is generated automatically.
 
-### 2) Pipeline mode
+### 2) Parse-only mode
+
+Validates URI syntax from one file without real connectivity checks:
+
+```bash
+./bin/krot parse --in in.txt
+```
+
+In parse-only flow, worker count is internally multiplied for faster parsing throughput.
+
+### 3) Pipeline mode
 
 Runs checks for predefined files in one run:
 
@@ -82,12 +97,12 @@ Runs checks for predefined files in one run:
 - `vless_small.txt`
 
 ```bash
-./bin/krot --pipeline --workers 24 --timeout 8s
+./bin/krot pipeline --workers 24 --timeout 8s
 ```
 
-### 3) Load mode
+### 4) Load mode
 
-Downloads and merges remote source lists into:
+Downloads and merges remote source lists from `urls.yaml` (or the file passed via `--urls`) into:
 
 - `vless.txt`
 - `vless_small.txt`
@@ -96,18 +111,14 @@ Downloads and merges remote source lists into:
 Then runs parse-only validation on these files.
 
 ```bash
-./bin/krot --load --workers 24
+./bin/krot load --workers 24
 ```
 
-## Parse-Only Mode
-
-`--parse` can be used in normal or pipeline mode to quickly validate URI syntax without real connectivity checks:
+Generate default `urls.yaml`:
 
 ```bash
-./bin/krot --in in.txt --parse
+./bin/krot save
 ```
-
-In parse-only flow, worker count is internally multiplied for faster parsing throughput.
 
 ## Input Rules
 
@@ -136,7 +147,7 @@ ss://...
 - Order is not guaranteed (concurrent processing)
 - Progress is printed to `stderr`
 - Logs are printed to `stdout` in text format
-- If `--log <path>` is passed, JSON logs are also appended to that file
+- If `--log-path <path>` is passed, JSON logs are also appended to that file
 
 ## Exit Codes
 

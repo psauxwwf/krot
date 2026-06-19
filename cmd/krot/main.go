@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
-	"krot/config/config"
+	"krot/internal/config"
 	"krot/internal/krot"
 
 	"krot/pkg/loader"
@@ -67,128 +67,234 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
-	defaults := config.Default()
-
-	var (
-		saveConf bool
-		confPath = "krot.yaml"
-		_config  *config.Config
-	)
+	_config := config.DefaultRuntime()
+	urlsPath := "urls.yaml"
 
 	rootCmd := &cobra.Command{
 		Use:           "krot",
 		Short:         "Concurrent proxy checker",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			var err error
-			_config, err = config.FromCobra(confPath, cmd)
-			if err != nil {
-				return newExitError(initCode, err)
-			}
-
-			return newExitError(initCode, configureLogger(_config.Runtime.Level, _config.Runtime.Log))
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd: true,
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if saveConf {
-				if err := config.SaveConfig(confPath, _config); err != nil {
-					return newExitError(fatalCode, fmt.Errorf("failed to save config %q: %w", confPath, err))
-				}
-
-				slog.Info("config saved", "path", confPath)
-				return nil
-			}
-
-			if err := validateConfig(_config); err != nil {
-				return newExitError(initCode, err)
-			}
-
-			slog.Info("starting proxy checker",
-				"input", _config.Runtime.In,
-				"out", _config.Runtime.Out,
-				"level", _config.Runtime.Level,
-				"timeout", _config.Runtime.Timeout.String(),
-				"workers", _config.Runtime.Workers,
-			)
-
-			checker := krot.New(_config.Runtime.Timeout, _config.Runtime.Parse, _config.Runtime.Chars, _config.Runtime.Shuf)
-			if _config.Runtime.Load {
-				loadFiles := make(map[string][]string, len(_config.Urls))
-				for key, urls := range _config.Urls {
-					loadFiles[key+".txt"] = urls
-				}
-
-				saveErrs := make([]error, 0, len(loadFiles))
-				for filename, urls := range loadFiles {
-					saveErrs = append(saveErrs, loader.Save(filename, urls))
-				}
-				if err := errors.Join(saveErrs...); err != nil {
-					slog.Error("failed to save one or more url files", "error", err)
-				}
-
-				parseChecker := krot.New(_config.Runtime.Timeout, true, _config.Runtime.Chars, _config.Runtime.Shuf)
-				parseErrs := make([]error, 0, len(loadFiles))
-				for filename := range loadFiles {
-					parseErrs = append(parseErrs, parseChecker.Run(filename, filename, _config.Runtime.Workers*3))
-				}
-				if err := errors.Join(parseErrs...); err != nil {
-					slog.Error("failed to parse one or more url files", "error", err)
-				}
-
-				return nil
-			}
-
-			if _config.Runtime.In == "" {
-				return newExitError(inputCode, fmt.Errorf("source file not set: use runtime.in or --in"))
-			}
-
-			if _config.Runtime.Pipeline {
-				return newExitError(fatalCode, checker.Pipeline(_config.Runtime.Workers, _config.Urls))
-			}
-
-			out := _config.Runtime.Out
-			if out == "" {
-				out = krot.ToOutname(_config.Runtime.In)
-			}
-
-			return newExitError(fatalCode, checker.Run(_config.Runtime.In, out, _config.Runtime.Workers))
+			return runCheck(_config)
 		},
 	}
 
-	rootCmd.Flags().StringVar(&confPath, "config", "krot.yaml", "path to config file")
-	rootCmd.Flags().BoolVar(&saveConf, "save", false, "save resolved config to --config and exit")
-	rootCmd.Flags().String("in", defaults.Runtime.In, "input file")
-	rootCmd.Flags().String("out", defaults.Runtime.Out, "output file")
-	rootCmd.Flags().String("log", defaults.Runtime.Log, "log file path")
-	rootCmd.Flags().String("level", defaults.Runtime.Level, "log level: debug|info|warn|error")
-	rootCmd.Flags().Duration("timeout", defaults.Runtime.Timeout, "proxy check timeout (e.g. 10s, 1m)")
-	rootCmd.Flags().Int("workers", defaults.Runtime.Workers, "number of concurrent workers")
-	rootCmd.Flags().Bool("pipeline", defaults.Runtime.Pipeline, "start all checks")
-	rootCmd.Flags().Bool("shuf", defaults.Runtime.Shuf, "shuffle input lines")
-	rootCmd.Flags().Bool("parse", defaults.Runtime.Parse, "parse only url don't send requests")
-	rootCmd.Flags().Int("chars", defaults.Runtime.Chars, "max chars in one line")
-	rootCmd.Flags().Bool("load", defaults.Runtime.Load, "download source files")
+	rootCmd.PersistentFlags().StringVar(&urlsPath, "urls", urlsPath, "path to urls config file")
+	rootCmd.PersistentFlags().StringVar(&_config.In, "in", _config.In, "input file")
+	rootCmd.PersistentFlags().StringVar(&_config.Out, "out", _config.Out, "output file")
+	rootCmd.PersistentFlags().StringVar(&_config.Log, "log-path", _config.Log, "log file path")
+	rootCmd.PersistentFlags().StringVar(&_config.Level, "log-level", _config.Level, "log level: debug|info|warn|error")
+	rootCmd.PersistentFlags().DurationVar(&_config.Timeout, "timeout", _config.Timeout, "proxy check timeout (e.g. 10s, 1m)")
+	rootCmd.PersistentFlags().IntVar(&_config.Workers, "workers", _config.Workers, "number of concurrent workers")
+	rootCmd.PersistentFlags().IntVar(&_config.Chars, "chars", _config.Chars, "max chars in one line")
+
+	rootCmd.AddCommand(
+		newSaveCmd(&_config, &urlsPath),
+		newLoadCmd(&_config, &urlsPath),
+		newParseCmd(&_config),
+		newPipelineCmd(&_config, &urlsPath),
+	)
 
 	return rootCmd
 }
 
-func validateConfig(_config *config.Config) error {
-	if _config.Runtime.Timeout <= 0 {
-		return fmt.Errorf("invalid timeout %q: must be > 0", _config.Runtime.Timeout.String())
+func newSaveCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "save",
+		Short: "Save default URL lists to urls config",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if err := configureLogger(_config.Level, _config.Log); err != nil {
+				return newExitError(initCode, err)
+			}
+			if err := config.Save(*urlsPath); err != nil {
+				return newExitError(fatalCode, fmt.Errorf("failed to save urls config %q: %w", *urlsPath, err))
+			}
+
+			slog.Info("urls config saved", "path", *urlsPath)
+			return nil
+		},
 	}
-	if _config.Runtime.Workers <= 0 {
-		return fmt.Errorf("invalid workers %d: must be > 0", _config.Runtime.Workers)
+}
+
+func newLoadCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "load",
+		Short: "Load source files from urls config",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runLoad(*_config, *urlsPath)
+		},
 	}
-	if _config.Runtime.Load {
-		if len(_config.Urls["vless"]) == 0 {
-			return fmt.Errorf("urls.vless is empty")
-		}
-		if len(_config.Urls["vless_small"]) == 0 {
-			return fmt.Errorf("urls.vless_small is empty")
-		}
-		if len(_config.Urls["mtproto"]) == 0 {
-			return fmt.Errorf("urls.mtproto is empty")
-		}
+}
+
+func newParseCmd(_config *config.Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "parse",
+		Short: "Parse and validate proxies from input file",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			parseCfg := *_config
+			parseCfg.Parse = true
+			return runCheck(parseCfg)
+		},
+	}
+}
+
+func newPipelineCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "pipeline",
+		Short: "Run built-in checks for predefined files",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runPipeline(*_config, *urlsPath)
+		},
+	}
+}
+
+func validateRuntime(_config config.Runtime) error {
+	if _config.Timeout <= 0 {
+		return fmt.Errorf("invalid timeout %q: must be > 0", _config.Timeout.String())
+	}
+	if _config.Workers <= 0 {
+		return fmt.Errorf("invalid workers %d: must be > 0", _config.Workers)
+	}
+
+	return nil
+}
+
+func validateURLs(urls config.Urls) error {
+	if len(urls["vless"]) == 0 {
+		return fmt.Errorf("urls.vless is empty")
+	}
+	if len(urls["vless_small"]) == 0 {
+		return fmt.Errorf("urls.vless_small is empty")
+	}
+	if len(urls["mtproto"]) == 0 {
+		return fmt.Errorf("urls.mtproto is empty")
+	}
+
+	return nil
+}
+
+func runCheck(_config config.Runtime) error {
+	if err := configureLogger(_config.Level, _config.Log); err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateRuntime(_config); err != nil {
+		return newExitError(initCode, err)
+	}
+	if _config.In == "" {
+		return newExitError(inputCode, fmt.Errorf("source file not set: use --in"))
+	}
+
+	slog.Info("starting proxy checker",
+		"input", _config.In,
+		"out", _config.Out,
+		"level", _config.Level,
+		"timeout", _config.Timeout.String(),
+		"workers", _config.Workers,
+		"parse", _config.Parse,
+	)
+
+	out := _config.Out
+	if out == "" {
+		out = krot.ToOutname(_config.In)
+	}
+
+	checker := krot.New(_config.Timeout, _config.Parse, _config.Chars)
+	return newExitError(fatalCode, checker.Run(_config.In, out, _config.Workers))
+}
+
+func runLoad(_config config.Runtime, urlsPath string) error {
+	if err := configureLogger(_config.Level, _config.Log); err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateRuntime(_config); err != nil {
+		return newExitError(initCode, err)
+	}
+
+	urlsCfg, err := loadURLsConfig(urlsPath)
+	if err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateURLs(urlsCfg.Urls); err != nil {
+		return newExitError(initCode, err)
+	}
+
+	loadFiles := make(map[string][]string, len(urlsCfg.Urls))
+	for key, urls := range urlsCfg.Urls {
+		loadFiles[key+".txt"] = urls
+	}
+
+	saveErrs := make([]error, 0, len(loadFiles))
+	for filename, urls := range loadFiles {
+		saveErrs = append(saveErrs, loader.Save(filename, urls))
+	}
+	if err := errors.Join(saveErrs...); err != nil {
+		slog.Error("failed to save one or more url files", "error", err)
+	}
+
+	parseChecker := krot.New(_config.Timeout, true, _config.Chars)
+	parseErrs := make([]error, 0, len(loadFiles))
+	for filename := range loadFiles {
+		parseErrs = append(parseErrs, parseChecker.Run(filename, filename, _config.Workers*3))
+	}
+	if err := errors.Join(parseErrs...); err != nil {
+		slog.Error("failed to parse one or more url files", "error", err)
+	}
+
+	return nil
+}
+
+func runPipeline(_config config.Runtime, urlsPath string) error {
+	if err := configureLogger(_config.Level, _config.Log); err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateRuntime(_config); err != nil {
+		return newExitError(initCode, err)
+	}
+
+	urlsCfg, err := loadURLsConfig(urlsPath)
+	if err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateURLs(urlsCfg.Urls); err != nil {
+		return newExitError(initCode, err)
+	}
+
+	slog.Info("starting pipeline",
+		"level", _config.Level,
+		"timeout", _config.Timeout.String(),
+		"workers", _config.Workers,
+	)
+
+	checker := krot.New(_config.Timeout, false, _config.Chars)
+	return newExitError(fatalCode, checker.Pipeline(_config.Workers, urlsCfg.Urls))
+}
+
+func loadURLsConfig(path string) (*config.Config, error) {
+	if err := ensureURLsConfig(path); err != nil {
+		return nil, err
+	}
+
+	return config.New(path)
+}
+
+func ensureURLsConfig(path string) error {
+	_, err := config.New(path)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, config.ErrNotExists) {
+		return err
+	}
+	if err := config.Save(path); err != nil {
+		return fmt.Errorf("failed to create default urls config %q: %w", path, err)
 	}
 
 	return nil

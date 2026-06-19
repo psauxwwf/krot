@@ -1,3 +1,5 @@
+---
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
 dotenv: ["build.env"]
@@ -7,7 +9,6 @@ vars:
   ldflags: "-extldflags '-static' -w -s -buildid="
   gcflags: "all=-trimpath={{.PWD}} -dwarf=false -l"
   asmflags: "all=-trimpath={{.PWD}}"
-  tmp_dir: "/tmp/krot"
   android_ndk: "{{.PWD}}/android-ndk-r27"
   android_api: "24"
   android_clang: "{{.android_ndk}}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{{.android_api}}-clang"
@@ -26,17 +27,16 @@ env:
 
 tasks:
   setup:
-    desc: set up the environment
+    desc: prepare build environment
     internal: true
     silent: true
     run: once
     cmds:
       - mkdir -p {{.bin}}
-      - mkdir -p {{.tmp_dir}}
       - task: setup:xray-checker
 
   setup:xray-checker:
-    desc: clone xray-checker if missing
+    desc: prepare local xray-checker module
     internal: true
     run: once
     status:
@@ -49,7 +49,7 @@ tasks:
       - grep -R -l --include='*.go' '"xray-checker/' xray-checker | xargs -r sed -i 's|"xray-checker/|"github.com/kutovoys/xray-checker/|g'
 
   setup:android-ndk:
-    desc: install android ndk r27 if missing
+    desc: install Android NDK r27
     internal: true
     status:
       - test -x {{.android_clang}}
@@ -58,15 +58,14 @@ tasks:
       - unzip -q /tmp/android-ndk-r27-linux.zip -d {{.PWD}}
 
   build:
-    desc: build all targets
+    desc: build all binaries
     cmds:
       - task: build:linux
       - task: build:termux
 
   build:linux:
-    desc: build for linux amd64
-    deps:
-      - setup
+    desc: build Linux amd64 binary
+    deps: [setup]
     cmds:
       - >
         {{.gobin}} build
@@ -80,10 +79,8 @@ tasks:
       - objcopy --strip-unneeded {{.app_bin}}
 
   build:termux:
-    desc: build for termux (android arm64)
-    deps:
-      - setup
-      - setup:android-ndk
+    desc: build Android arm64 Termux binary
+    deps: [setup, setup:android-ndk]
     cmds:
       - >
         CGO_ENABLED=1 GOOS=android GOARCH=arm64
@@ -96,39 +93,33 @@ tasks:
         -o {{.app_termux_bin}} cmd/{{.app}}/main.go
 
   load:
-    desc: load source files
+    desc: download and validate source lists
     dir: "{{.bin}}"
     cmds:
-      - |
-        {{.app_bin}} --load
+      - "{{.app_bin}} load"
 
   release:pack:
-    desc: create release archives
+    desc: pack release archives
     internal: true
     cmds:
       - tar -czf {{.release_linux_archive}} -C {{.bin}} {{.app}} mtproto.txt vless.txt vless_small.txt
       - tar -czf {{.release_termux_archive}} -C {{.bin}} {{.app}}_termux mtproto.txt vless.txt vless_small.txt
 
   release:
-    desc: build and prepare release
-    deps:
-      - build
+    desc: build binaries and release assets
+    deps: [build]
     cmds:
       - task: load
       - task: release:pack
 
   release:create:
-    desc: build and publish github release
-    deps:
-      - release
+    desc: create GitHub release
+    deps: [release]
     cmds:
-      - |
-        TAG=$(date +v%m.%d.%H)
-        gh release create "$TAG" {{.release_linux_archive}} {{.release_termux_archive}} {{.bin}}/mtproto.txt {{.bin}}/vless.txt {{.bin}}/vless_small.txt
+      - gh release create "$(date +v%m.%d.%H)" {{.release_linux_archive}} {{.release_termux_archive}} {{.bin}}/mtproto.txt {{.bin}}/vless.txt {{.bin}}/vless_small.txt
 
   pipeline:
-    desc: run pipeline for load creds
-    deps:
-      - build:linux
+    desc: build Linux binary and load source lists
+    deps: [build:linux]
     cmds:
       - task: load

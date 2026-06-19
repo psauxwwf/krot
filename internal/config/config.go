@@ -8,26 +8,23 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v2"
 )
 
 var (
-	_default = Config{
-		Runtime: Runtime{
-			In:       "",
-			Out:      "",
-			Log:      "",
-			Level:    "info",
-			Timeout:  6 * time.Second,
-			Workers:  runtime.NumCPU() * 3,
-			Pipeline: false,
-			Shuf:     true,
-			Parse:    false,
-			Chars:    4096,
-			Load:     false,
-		},
+	defaultRuntime = Runtime{
+		In:       "",
+		Out:      "",
+		Log:      "",
+		Level:    "info",
+		Timeout:  6 * time.Second,
+		Workers:  runtime.NumCPU() * 3,
+		Pipeline: false,
+		Parse:    false,
+		Chars:    4096,
+		Load:     false,
+	}
+	defaultURLs = Config{
 		Urls: Urls{
 			"vless": []string{
 				"https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/1.txt",
@@ -104,12 +101,11 @@ var (
 			},
 		},
 	}
-	ErrNotExists = fmt.Errorf("config not found: %w", os.ErrNotExist)
+	ErrNotExists = fmt.Errorf("urls config not found: %w", os.ErrNotExist)
 )
 
 type Config struct {
-	Runtime Runtime `yaml:"runtime"`
-	Urls    Urls    `yaml:"urls"`
+	Urls Urls `yaml:"urls"`
 }
 
 type Runtime struct {
@@ -120,7 +116,6 @@ type Runtime struct {
 	Timeout  time.Duration `yaml:"timeout"`
 	Workers  int           `yaml:"workers"`
 	Pipeline bool          `yaml:"pipeline"`
-	Shuf     bool          `yaml:"shuf"`
 	Parse    bool          `yaml:"parse"`
 	Chars    int           `yaml:"chars"`
 	Load     bool          `yaml:"load"`
@@ -129,15 +124,19 @@ type Runtime struct {
 type Urls map[string][]string
 
 func Default() Config {
-	dst := _default
-	if _default.Urls != nil {
-		dst.Urls = make(Urls, len(_default.Urls))
-		for key, values := range _default.Urls {
+	dst := Config{}
+	if defaultURLs.Urls != nil {
+		dst.Urls = make(Urls, len(defaultURLs.Urls))
+		for key, values := range defaultURLs.Urls {
 			dst.Urls[key] = append([]string(nil), values...)
 		}
 	}
 
 	return dst
+}
+
+func DefaultRuntime() Runtime {
+	return defaultRuntime
 }
 
 func Save(filename string) error {
@@ -146,7 +145,7 @@ func Save(filename string) error {
 
 func SaveConfig(filename string, cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("config is nil")
+		return fmt.Errorf("urls config is nil")
 	}
 
 	return save(cfg, filename)
@@ -159,60 +158,16 @@ func New(filename string) (*Config, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return &_config, ErrNotExists
 		}
-		return nil, fmt.Errorf("failed to find file: %w", err)
+		return nil, fmt.Errorf("failed to find urls config: %w", err)
 	}
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		return nil, fmt.Errorf("failed to read urls config: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, &_config); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	return &_config, nil
-}
-
-func FromCobra(path string, cmd *cobra.Command) (*Config, error) {
-	if _, err := os.Stat(path); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("failed to stat config %q: %w", path, err)
-		}
-		if err := Save(path); err != nil {
-			return nil, fmt.Errorf("failed to create default config %q: %w", path, err)
-		}
-	}
-
-	v := viper.New()
-	v.SetConfigFile(path)
-
-	binding := map[string]string{
-		"runtime.in":       "in",
-		"runtime.out":      "out",
-		"runtime.log":      "log",
-		"runtime.level":    "level",
-		"runtime.timeout":  "timeout",
-		"runtime.workers":  "workers",
-		"runtime.pipeline": "pipeline",
-		"runtime.shuf":     "shuf",
-		"runtime.parse":    "parse",
-		"runtime.chars":    "chars",
-		"runtime.load":     "load",
-	}
-	for key, flag := range binding {
-		if err := v.BindPFlag(key, cmd.Flags().Lookup(flag)); err != nil {
-			return nil, fmt.Errorf("failed to bind flag %q: %w", flag, err)
-		}
-	}
-
-	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config %q: %w", path, err)
-	}
-
-	_config := Default()
-	if err := v.Unmarshal(&_config); err != nil {
-		return nil, fmt.Errorf("failed to parse config %q: %w", path, err)
+		return nil, fmt.Errorf("failed to load urls config: %w", err)
 	}
 
 	return &_config, nil
@@ -221,15 +176,15 @@ func FromCobra(path string, cmd *cobra.Command) (*Config, error) {
 func save(config any, path string) error {
 	data, err := yaml.Marshal(&config)
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return fmt.Errorf("failed to marshal urls config: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("failed to save default config: %w", err)
+		return fmt.Errorf("failed to save urls config: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("failed to save default config: %w", err)
+		return fmt.Errorf("failed to save urls config: %w", err)
 	}
 
 	return nil
