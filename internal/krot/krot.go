@@ -9,12 +9,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"krot/pkg/checker"
+	"krot/pkg/env"
 	"krot/pkg/mtproto"
 )
 
@@ -63,7 +65,11 @@ func (k *Krot) Pipeline(workers int, urls map[string][]string) error {
 
 func (k *Krot) Run(in, out string, workers int) error {
 	if k.parseOnly {
-		workers = workers * 10
+		workers = workers * 4
+		maxWorkers := runtime.NumCPU() * 8
+		if workers > maxWorkers {
+			workers = maxWorkers
+		}
 	}
 	jobs, err := readJobs(in, k.maxChars)
 	if err != nil {
@@ -78,6 +84,7 @@ func (k *Krot) Run(in, out string, workers int) error {
 		return fmt.Errorf("failed to open output file %s: %w", out, err)
 	}
 	defer _out.Close()
+	writer := bufio.NewWriterSize(_out, 256*1024)
 
 	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(jobs), func(i, j int) {
 		jobs[i], jobs[j] = jobs[j], jobs[i]
@@ -85,6 +92,7 @@ func (k *Krot) Run(in, out string, workers int) error {
 
 	jobsch := make(chan job)
 	resch := make(chan result)
+	showProgress := !env.IsGitHubActions()
 
 	var wg sync.WaitGroup
 	for range workers {
@@ -107,6 +115,9 @@ func (k *Krot) Run(in, out string, workers int) error {
 	}()
 
 	_print := func() {
+		if !showProgress {
+			return
+		}
 		processed := ok + fail
 		fmt.Fprintf(os.Stderr, "\r%d/%d | ok %d | failed %d", processed, total, ok, fail)
 	}
@@ -124,14 +135,17 @@ func (k *Krot) Run(in, out string, workers int) error {
 		if !k.parseOnly {
 			slog.Info("proxy check ok", "line", r.line, "uri", r.uri)
 		}
-		if _, err := _out.WriteString(r.uri + "\n"); err != nil {
+		if _, err := writer.WriteString(r.uri + "\n"); err != nil {
 			return fmt.Errorf("failed to write output %s in line %d: %w", out, r.line, err)
 		}
-		if err := _out.Sync(); err != nil {
-			return fmt.Errorf("failed to sync output %s in line %d: %w", out, r.line, err)
-		}
 	}
-	if total > 0 {
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush output %s: %w", out, err)
+	}
+	if err := _out.Sync(); err != nil {
+		return fmt.Errorf("failed to sync output %s: %w", out, err)
+	}
+	if showProgress && total > 0 {
 		fmt.Fprintln(os.Stderr)
 	}
 

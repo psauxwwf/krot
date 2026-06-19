@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"krot/pkg/env"
 )
 
 const (
@@ -23,13 +25,29 @@ func Load(urls ...string) ([]string, error) {
 	slog.Info("starting urls load", "sources", len(urls))
 
 	var (
-		client = &http.Client{Timeout: loadTimeout}
-		result = make([]string, 0)
+		client     = &http.Client{Timeout: loadTimeout}
+		result     = make([]string, 0)
+		failedURLs = make([]string, 0)
+		ok         int
+		fail       int
 	)
+	total := len(urls)
+	showProgress := !env.IsGitHubActions()
+
+	printProgress := func() {
+		if !showProgress {
+			return
+		}
+		processed := ok + fail
+		fmt.Fprintf(os.Stderr, "\r%d/%d | ok %d | failed %d | unique %d", processed, total, ok, fail, len(result))
+	}
 
 	for _, sourceURL := range urls {
 		lines, err := loadSource(client, sourceURL)
 		if err != nil {
+			fail++
+			failedURLs = append(failedURLs, sourceURL)
+			printProgress()
 			slog.Error("failed to process source", "url", sourceURL, "error", err)
 			continue
 		}
@@ -40,8 +58,19 @@ func Load(urls ...string) ([]string, error) {
 			}
 			result = append(result, line)
 		}
+		ok++
+		printProgress()
 
 		slog.Info("source loaded", "url", sourceURL, "unique_total", len(result))
+	}
+	if showProgress && total > 0 {
+		fmt.Fprintln(os.Stderr)
+	}
+	if len(failedURLs) > 0 {
+		fmt.Fprintln(os.Stderr, "failed source urls:")
+		for _, failedURL := range failedURLs {
+			fmt.Fprintln(os.Stderr, failedURL)
+		}
 	}
 	slog.Info("finished urls load", "unique_total", len(result))
 

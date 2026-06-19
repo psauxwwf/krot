@@ -94,6 +94,7 @@ tasks:
 
   load:
     desc: download and validate source lists
+    deps: [build:linux]
     dir: "{{.bin}}"
     cmds:
       - "{{.app_bin}} load"
@@ -117,9 +118,3 @@ tasks:
     deps: [release]
     cmds:
       - gh release create "$(date +v%m.%d.%H)" {{.release_linux_archive}} {{.release_termux_archive}} {{.bin}}/mtproto.txt {{.bin}}/vless.txt {{.bin}}/vless_small.txt
-
-  pipeline:
-    desc: build Linux binary and load source lists
-    deps: [build:linux]
-    cmds:
-      - task: load

@@ -27,7 +27,7 @@ https://github.com/psauxwwf/krot/releases/latest/download/vless.txt
 - Skips empty lines and `#` comments
 - Always shuffles input lines before checking
 - Optional parse-only mode (URI parse/validate only, without network checks)
-- Logs to `stdout` by default; optionally duplicates JSON logs to a file via `--log-path`
+- Logs are written to `krot.json` by default; logger output does not go to terminal
 
 ## Build
 
@@ -56,7 +56,7 @@ Common flags:
 - `--urls` (default: `urls.yaml`) - path to YAML file with source URL lists
 - `--in` (default: empty) - input file
 - `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
-- `--log-path` (default: empty) - optional path for JSON log file (logs still go to `stdout`)
+- `--log-path` (default: `krot.json`) - path to JSON log file
 - `--log-level` (default: `info`) - log level: `debug|info|warn|error`
 - `--timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
 - `--workers` (default: `runtime.NumCPU()*3`) - number of concurrent workers
@@ -146,8 +146,8 @@ ss://...
 - Output file contains only successful entries
 - Order is not guaranteed (concurrent processing)
 - Progress is printed to `stderr`
-- Logs are printed to `stdout` in text format
-- If `--log-path <path>` is passed, JSON logs are also appended to that file
+- Logger output is written to `krot.json` in JSON format by default
+- `--log-path <path>` overrides the default log file path
 
 ## Exit Codes
 

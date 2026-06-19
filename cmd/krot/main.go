@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
@@ -86,7 +85,7 @@ func rootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&urlsPath, "urls", urlsPath, "path to urls config file")
 	rootCmd.PersistentFlags().StringVar(&_config.In, "in", _config.In, "input file")
 	rootCmd.PersistentFlags().StringVar(&_config.Out, "out", _config.Out, "output file")
-	rootCmd.PersistentFlags().StringVar(&_config.Log, "log-path", _config.Log, "log file path")
+	rootCmd.PersistentFlags().StringVar(&_config.Log, "log-path", _config.Log, "path to log file")
 	rootCmd.PersistentFlags().StringVar(&_config.Level, "log-level", _config.Level, "log level: debug|info|warn|error")
 	rootCmd.PersistentFlags().DurationVar(&_config.Timeout, "timeout", _config.Timeout, "proxy check timeout (e.g. 10s, 1m)")
 	rootCmd.PersistentFlags().IntVar(&_config.Workers, "workers", _config.Workers, "number of concurrent workers")
@@ -306,13 +305,8 @@ func configureLogger(levelText, logPath string) error {
 		return fmt.Errorf("invalid log level %q: %w", levelText, err)
 	}
 
-	stdoutHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parsedLevel,
-	})
-
-	if strings.TrimSpace(logPath) == "" {
-		slog.SetDefault(slog.New(stdoutHandler))
-		return nil
+	if logPath == "" {
+		logPath = config.DefaultRuntime().Log
 	}
 
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
@@ -324,13 +318,10 @@ func configureLogger(levelText, logPath string) error {
 		return fmt.Errorf("failed to open log file %q: %w", logPath, err)
 	}
 
-	slog.SetDefault(slog.New(slog.NewMultiHandler(
-		stdoutHandler,
-		slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     parsedLevel,
-		}),
-	)))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     parsedLevel,
+	})))
 
 	return nil
 }

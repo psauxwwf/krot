@@ -39,7 +39,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Load cred files
-        run: task pipeline
+        run: task load
 
       - name: Set tag name
         run: echo "GITHUB_RELEASE_TAG=$(date +load_%m.%d.%H)" >> "$GITHUB_ENV"

@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/proxy"
 
+	checkerlogger "github.com/kutovoys/xray-checker/logger"
 	checkermodels "github.com/kutovoys/xray-checker/models"
 	checkersubscription "github.com/kutovoys/xray-checker/subscription"
 	checkerxray "github.com/kutovoys/xray-checker/xray"
@@ -20,6 +23,12 @@ import (
 	"github.com/xtls/xray-core/infra/conf/serial"
 	_ "github.com/xtls/xray-core/main/distro/all"
 )
+
+func init() {
+	checkerlogger.SetLevel(checkerlogger.LevelNone)
+}
+
+var parserOutputMu sync.Mutex
 
 const (
 	probeURL1     = "https://cp.cloudflare.com/generate_204"
@@ -40,11 +49,9 @@ func Check(rawURI string, timeout time.Duration, parseOnly bool) error {
 	if err != nil {
 		return err
 	}
-
 	if parseOnly {
 		return nil
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -221,7 +228,7 @@ func getFreeTCPPort() (int, error) {
 func parse(rawURI string) (config, error) {
 	parser := checkersubscription.NewParser()
 
-	result, err := parser.Parse(strings.TrimSpace(rawURI))
+	result, err := parseQuiet(parser, strings.TrimSpace(rawURI))
 	if err != nil {
 		return config{}, fmt.Errorf("parse proxy uri: %w", err)
 	}
@@ -238,4 +245,23 @@ func parse(rawURI string) (config, error) {
 	}
 
 	return config{proxy: proxyConfig}, nil
+}
+
+func parseQuiet(parser *checkersubscription.Parser, rawURI string) (*checkersubscription.ParseResult, error) {
+	parserOutputMu.Lock()
+	defer parserOutputMu.Unlock()
+
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return parser.Parse(rawURI)
+	}
+	defer devNull.Close()
+
+	savedStdout := os.Stdout
+	os.Stdout = devNull
+	defer func() {
+		os.Stdout = savedStdout
+	}()
+
+	return parser.Parse(rawURI)
 }
