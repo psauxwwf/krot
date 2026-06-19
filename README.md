@@ -45,7 +45,7 @@ task build:termux
 
 Available commands:
 
-- `krot` - check proxies from one input file
+- `krot check` - parse, validate, and connectivity-check proxies from one input file
 - `krot parse` - parse/validate proxies from one input file without network checks
 - `krot load` - download source lists from `urls.yaml` and then parse/validate them
 - `krot pipeline` - run built-in checks for `mtproto.txt`, `vless.txt`, `vless_small.txt`
@@ -54,13 +54,19 @@ Available commands:
 Common flags:
 
 - `--urls` (default: `urls.yaml`) - path to YAML file with source URL lists
-- `--in` (default: empty) - input file
-- `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
 - `--log-path` (default: `krot.json`) - path to JSON log file
 - `--log-level` (default: `info`) - log level: `debug|info|warn|error`
-- `--timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
 - `--workers` (default: `runtime.NumCPU()*3`) - number of concurrent workers
 - `--chars` (default: `4096`) - max characters allowed in one input line
+
+`check` and `parse` flags only:
+
+- `--in` (default: empty) - input file
+- `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
+
+`check` and `pipeline` flags only:
+
+- `--timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
 
 ## Modes
 
@@ -71,7 +77,7 @@ Common flags:
 Default mode for checking one file with real connectivity tests.
 
 ```bash
-./bin/krot --in vless.txt --out ok.txt --workers 24 --timeout 8s
+./bin/krot check --in vless.txt --out ok.txt --workers 24 --timeout 8s
 ```
 
 `--in` must be set in this mode.

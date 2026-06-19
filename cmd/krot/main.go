@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
@@ -77,21 +78,17 @@ func rootCmd() *cobra.Command {
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
 		},
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runCheck(_config)
-		},
 	}
+	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
 
 	rootCmd.PersistentFlags().StringVar(&urlsPath, "urls", urlsPath, "path to urls config file")
-	rootCmd.PersistentFlags().StringVar(&_config.In, "in", _config.In, "input file")
-	rootCmd.PersistentFlags().StringVar(&_config.Out, "out", _config.Out, "output file")
 	rootCmd.PersistentFlags().StringVar(&_config.Log, "log-path", _config.Log, "path to log file")
 	rootCmd.PersistentFlags().StringVar(&_config.Level, "log-level", _config.Level, "log level: debug|info|warn|error")
-	rootCmd.PersistentFlags().DurationVar(&_config.Timeout, "timeout", _config.Timeout, "proxy check timeout (e.g. 10s, 1m)")
 	rootCmd.PersistentFlags().IntVar(&_config.Workers, "workers", _config.Workers, "number of concurrent workers")
 	rootCmd.PersistentFlags().IntVar(&_config.Chars, "chars", _config.Chars, "max chars in one line")
 
 	rootCmd.AddCommand(
+		newCheckCmd(&_config),
 		newSaveCmd(&_config, &urlsPath),
 		newLoadCmd(&_config, &urlsPath),
 		newParseCmd(&_config),
@@ -99,6 +96,21 @@ func rootCmd() *cobra.Command {
 	)
 
 	return rootCmd
+}
+
+func newCheckCmd(_config *config.Runtime) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Parse, validate, and connectivity-check proxies from input file",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runCheck(*_config)
+		},
+	}
+	addIOFlags(cmd, _config)
+	addTimeoutFlag(cmd, _config)
+
+	return cmd
 }
 
 func newSaveCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
@@ -132,7 +144,7 @@ func newLoadCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
 }
 
 func newParseCmd(_config *config.Runtime) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "parse",
 		Short: "Parse and validate proxies from input file",
 		Args:  cobra.NoArgs,
@@ -142,10 +154,22 @@ func newParseCmd(_config *config.Runtime) *cobra.Command {
 			return runCheck(parseCfg)
 		},
 	}
+	addIOFlags(cmd, _config)
+
+	return cmd
+}
+
+func addIOFlags(cmd *cobra.Command, _config *config.Runtime) {
+	cmd.Flags().StringVar(&_config.In, "in", _config.In, "input file")
+	cmd.Flags().StringVar(&_config.Out, "out", _config.Out, "output file")
+}
+
+func addTimeoutFlag(cmd *cobra.Command, _config *config.Runtime) {
+	cmd.Flags().DurationVar(&_config.Timeout, "timeout", _config.Timeout, "proxy check timeout (e.g. 10s, 1m)")
 }
 
 func newPipelineCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "pipeline",
 		Short: "Run built-in checks for predefined files",
 		Args:  cobra.NoArgs,
@@ -153,14 +177,22 @@ func newPipelineCmd(_config *config.Runtime, urlsPath *string) *cobra.Command {
 			return runPipeline(*_config, *urlsPath)
 		},
 	}
+	addTimeoutFlag(cmd, _config)
+
+	return cmd
 }
 
 func validateRuntime(_config config.Runtime) error {
-	if _config.Timeout <= 0 {
-		return fmt.Errorf("invalid timeout %q: must be > 0", _config.Timeout.String())
-	}
 	if _config.Workers <= 0 {
 		return fmt.Errorf("invalid workers %d: must be > 0", _config.Workers)
+	}
+
+	return nil
+}
+
+func validateTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		return fmt.Errorf("invalid timeout %q: must be > 0", timeout.String())
 	}
 
 	return nil
@@ -186,6 +218,11 @@ func runCheck(_config config.Runtime) error {
 	}
 	if err := validateRuntime(_config); err != nil {
 		return newExitError(initCode, err)
+	}
+	if !_config.Parse {
+		if err := validateTimeout(_config.Timeout); err != nil {
+			return newExitError(initCode, err)
+		}
 	}
 	if _config.In == "" {
 		return newExitError(inputCode, fmt.Errorf("source file not set: use --in"))
@@ -255,6 +292,9 @@ func runPipeline(_config config.Runtime, urlsPath string) error {
 		return newExitError(initCode, err)
 	}
 	if err := validateRuntime(_config); err != nil {
+		return newExitError(initCode, err)
+	}
+	if err := validateTimeout(_config.Timeout); err != nil {
 		return newExitError(initCode, err)
 	}
 
