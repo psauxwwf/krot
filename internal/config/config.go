@@ -72,7 +72,7 @@ var (
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/25.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-all.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/raw/bypass-all-raw.txt",
-				"https://github.com/whoahaow/rjsxrd/blob/main/githubmirror/bypass/bypass-1.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-1.txt",
 			},
 			"vless_small": []string{
 				"https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt",
@@ -86,7 +86,7 @@ var (
 				"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt",
 				"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-all.txt",
-				"https://github.com/whoahaow/rjsxrd/blob/main/githubmirror/bypass/bypass-1.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-1.txt",
 			},
 			"mtproto": []string{
 				"https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
