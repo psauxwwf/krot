@@ -180,3 +180,4 @@ Use responsibly and in compliance with local laws and service/provider policies.
 - [Incy](https://github.com/INCY-DEV/incy-platforms/releases/download/desktop-v3.0.25/Incy.apk)
 - [OpenConnect](https://f-droid.org/packages/net.openconnect_vpn.android)
 - [V2BOX](https://play.google.com/store/apps/details?id=dev.hexasoftware.v2box)
+- [WDTT](https://github.com/amurcanov/proxy-turn-vk-android)
