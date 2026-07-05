@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
+	"krot/internal/lineio"
 	"krot/pkg/checker"
 	"krot/pkg/env"
 	"krot/pkg/mtproto"
@@ -165,34 +165,14 @@ func readJobs(in string, maxChars int) ([]job, error) {
 	}
 	defer _in.Close()
 
-	scanner := bufio.NewScanner(_in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-
-	line := 0
-	jobs := make([]job, 0)
-
-	for scanner.Scan() {
-		line++
-		uri := strings.TrimSpace(scanner.Text())
-
-		if uri == "" {
-			slog.Debug("skipping empty line", "line", line)
-			continue
-		}
-		if strings.HasPrefix(uri, "#") {
-			slog.Debug("skipping comment line", "line", line)
-			continue
-		}
-		if utf8.RuneCountInString(uri) > maxChars {
-			slog.Debug("skipping so long line", "line", line)
-			continue
-		}
-
-		jobs = append(jobs, job{line: line, uri: uri})
+	lines, err := lineio.Read(_in, in, lineio.Options{SkipComments: true, MaxChars: maxChars})
+	if err != nil {
+		return nil, err
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read input %s in line %d: %w", in, line, err)
+	jobs := make([]job, 0, len(lines))
+	for _, line := range lines {
+		jobs = append(jobs, job{line: line.Number, uri: line.Text})
 	}
 
 	return jobs, nil

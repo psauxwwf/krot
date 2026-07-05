@@ -45,15 +45,14 @@ task build:termux
 
 Available commands:
 
-- `krot check` - parse, validate, and connectivity-check proxies from one input file
-- `krot parse` - parse/validate proxies from one input file without network checks
+- `krot check` - parse, de-duplicate, validate, and connectivity-check proxies from one or more input files
+- `krot parse` - parse, de-duplicate, and validate proxies from one or more input files without network checks
 - `krot load` - download source lists from `urls.yaml` and then parse/validate them
 - `krot pipeline` - run built-in checks for `mtproto.txt`, `vless.txt`, `vless_small.txt`
 - `krot save` - save default URL lists to `urls.yaml`
 
 Common flags:
 
-- `--urls` (default: `urls.yaml`) - path to YAML file with source URL lists
 - `--log-path` (default: `krot.json`) - path to JSON log file
 - `--log-level` (default: `info`) - log level: `debug|info|warn|error`
 - `--workers` (default: `runtime.NumCPU()*3`) - number of concurrent workers
@@ -61,35 +60,39 @@ Common flags:
 
 `check` and `parse` flags only:
 
-- `--in` (default: empty) - input file
-- `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(in)>`
+- positional arguments - one or more input files; all lines are merged and de-duplicated before processing
+- `--out` (default: empty) - output file; if empty, auto-generated as `<dd.mm.yyyy_hh:mm>_<basename(first_input)>`
 
 `check` and `pipeline` flags only:
 
 - `--timeout` (default: `6s`) - timeout for one proxy check (`10s`, `1m`, etc.)
 
+`save`, `load`, and `pipeline` flags only:
+
+- `--urls` (default: `urls.yaml`) - path to YAML file with source URL lists
+
 ## Modes
 
 `krot` currently works in four practical modes.
 
-### 1) Normal mode (single file check)
+### 1) Normal mode (check)
 
-Default mode for checking one file with real connectivity tests.
+Default mode for checking one or more files with real connectivity tests.
 
 ```bash
-./bin/krot check --in vless.txt --out ok.txt --workers 24 --timeout 8s
+./bin/krot check vless.txt extra.txt --out ok.txt --workers 24 --timeout 8s
 ```
 
-`--in` must be set in this mode.
+At least one input file must be passed as a positional argument in this mode.
 
 If `--out` is not set, output filename is generated automatically.
 
 ### 2) Parse-only mode
 
-Validates URI syntax from one file without real connectivity checks:
+Validates URI syntax from one or more files without real connectivity checks:
 
 ```bash
-./bin/krot parse --in in.txt
+./bin/krot parse in.txt more.txt
 ```
 
 In parse-only flow, worker count is internally multiplied for faster parsing throughput.

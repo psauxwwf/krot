@@ -16,6 +16,7 @@ vars:
   app: "krot"
   app_bin: "{{.bin}}/{{.app}}"
   app_termux_bin: "{{.bin}}/{{.app}}_termux"
+  urls_config: "{{.PWD}}/urls.yaml"
   release_linux_archive: "{{.bin}}/{{.app}}_linux_amd64.tar.gz"
   release_termux_archive: "{{.bin}}/{{.app}}_android_arm64_termux.tar.gz"
 
@@ -97,7 +98,7 @@ tasks:
     deps: [build:linux]
     dir: "{{.bin}}"
     cmds:
-      - "{{.app_bin}} load"
+      - "{{.app_bin}} load --urls {{.urls_config}}"
 
   release:pack:
     desc: pack release archives

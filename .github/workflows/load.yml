@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   load:
-    name: Load and publish creds files
+    name: Load and publish proxy list files
     runs-on: ubuntu-22.04
 
     steps:
@@ -38,7 +38,7 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load cred files
+      - name: Load proxy list files
         run: task load
 
       - name: Set tag name

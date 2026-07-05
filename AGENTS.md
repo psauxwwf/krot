@@ -2,6 +2,13 @@
 
 Instructions for AI coding agents working with this codebase.
 
+## Naming
+
+- Do not use the `Cfg` abbreviation in names.
+- Always use the full `Config` form instead.
+- Do not use the `Urls` form in Go identifiers.
+- Always use the `URLs` form for that acronym instead.
+
 <!-- opensrc:start -->
 
 ## Source Code Reference

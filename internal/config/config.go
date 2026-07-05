@@ -13,20 +13,18 @@ import (
 
 var (
 	defaultRuntime = Runtime{
-		In:       "",
-		Out:      "",
-		Log:      "krot.json",
-		Level:    "info",
-		Timeout:  6 * time.Second,
-		Workers:  runtime.NumCPU() * 3,
-		Pipeline: false,
-		Parse:    false,
-		Chars:    4096,
-		Load:     false,
+		Out:     "",
+		Log:     "krot.json",
+		Level:   "info",
+		Timeout: 6 * time.Second,
+		Workers: runtime.NumCPU() * 3,
+		Parse:   false,
+		Chars:   4096,
 	}
 	defaultURLs = Config{
-		Urls: Urls{
+		URLs: URLs{
 			"vless": []string{
+				"https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt",
 				"https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/1.txt",
 				"https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/2.txt",
 				"https://github.com/AvenCores/goida-vpn-configs/raw/refs/heads/main/githubmirror/3.txt",
@@ -63,16 +61,23 @@ var (
 				"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt",
 				"https://raw.githubusercontent.com/V2RayRoot/V2RayConfig/refs/heads/main/Config/vmess.txt",
 				"https://raw.githubusercontent.com/V2RayRoot/V2RayConfig/refs/heads/main/Config/shadowsocks.txt",
-				// TODO: add all from https://github.com/whoahaow/rjsxrd
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/1.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/6.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/22.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/23.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/24.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/25.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/1.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/6.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/22.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/23.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/24.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/default/25.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-all.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/raw/bypass-all-raw.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-1.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-2.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-3.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-4.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-5.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-6.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-7.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-8.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-9.txt",
 			},
 			"vless_small": []string{
 				"https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt",
@@ -86,7 +91,16 @@ var (
 				"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt",
 				"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-all.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/raw/bypass-all-raw.txt",
 				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-1.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-2.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-3.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-4.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-5.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-6.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-7.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-8.txt",
+				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/bypass/bypass-9.txt",
 			},
 			"mtproto": []string{
 				"https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
@@ -98,7 +112,7 @@ var (
 				"https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTPS.txt",
 				"https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/MTProto.txt",
 				"https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/proxy_all.txt",
-				"https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/MTProto.txt",
+				// "https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/MTProto.txt",
 			},
 		},
 	}
@@ -106,30 +120,27 @@ var (
 )
 
 type Config struct {
-	Urls Urls `yaml:"urls"`
+	URLs URLs `yaml:"urls"`
 }
 
 type Runtime struct {
-	In       string        `yaml:"in"`
-	Out      string        `yaml:"out"`
-	Log      string        `yaml:"log"`
-	Level    string        `yaml:"level"`
-	Timeout  time.Duration `yaml:"timeout"`
-	Workers  int           `yaml:"workers"`
-	Pipeline bool          `yaml:"pipeline"`
-	Parse    bool          `yaml:"parse"`
-	Chars    int           `yaml:"chars"`
-	Load     bool          `yaml:"load"`
+	Out     string        `yaml:"out"`
+	Log     string        `yaml:"log"`
+	Level   string        `yaml:"level"`
+	Timeout time.Duration `yaml:"timeout"`
+	Workers int           `yaml:"workers"`
+	Parse   bool          `yaml:"parse"`
+	Chars   int           `yaml:"chars"`
 }
 
-type Urls map[string][]string
+type URLs map[string][]string
 
 func Default() Config {
 	dst := Config{}
-	if defaultURLs.Urls != nil {
-		dst.Urls = make(Urls, len(defaultURLs.Urls))
-		for key, values := range defaultURLs.Urls {
-			dst.Urls[key] = append([]string(nil), values...)
+	if defaultURLs.URLs != nil {
+		dst.URLs = make(URLs, len(defaultURLs.URLs))
+		for key, values := range defaultURLs.URLs {
+			dst.URLs[key] = append([]string(nil), values...)
 		}
 	}
 
@@ -144,12 +155,12 @@ func Save(filename string) error {
 	return save(Default(), filename)
 }
 
-func SaveConfig(filename string, cfg *Config) error {
-	if cfg == nil {
+func SaveConfig(filename string, urlsConfig *Config) error {
+	if urlsConfig == nil {
 		return fmt.Errorf("urls config is nil")
 	}
 
-	return save(cfg, filename)
+	return save(urlsConfig, filename)
 }
 
 func New(filename string) (*Config, error) {

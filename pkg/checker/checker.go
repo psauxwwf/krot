@@ -77,18 +77,18 @@ func Check(rawURI string, timeout time.Duration, parseOnly bool) error {
 	return nil
 }
 
-func startXray(ctx context.Context, cfg config, socksPort int) (*core.Instance, error) {
-	configBytes, err := buildXrayConfig(cfg, socksPort)
+func startXray(ctx context.Context, xrayConfig config, socksPort int) (*core.Instance, error) {
+	configBytes, err := buildXrayConfig(xrayConfig, socksPort)
 	if err != nil {
 		return nil, err
 	}
 
-	xrayConfig, err := serial.DecodeJSONConfig(bytes.NewReader(configBytes))
+	parsedXrayConfig, err := serial.DecodeJSONConfig(bytes.NewReader(configBytes))
 	if err != nil {
 		return nil, fmt.Errorf("decode xray config: %w", err)
 	}
 
-	coreConfig, err := xrayConfig.Build()
+	coreConfig, err := parsedXrayConfig.Build()
 	if err != nil {
 		return nil, fmt.Errorf("build xray config: %w", err)
 	}
@@ -116,8 +116,8 @@ func startXray(ctx context.Context, cfg config, socksPort int) (*core.Instance, 
 	}
 }
 
-func buildXrayConfig(cfg config, socksPort int) ([]byte, error) {
-	proxyConfig := *cfg.proxy
+func buildXrayConfig(xrayConfig config, socksPort int) ([]byte, error) {
+	proxyConfig := *xrayConfig.proxy
 	proxyConfig.Index = 0
 
 	generator := checkerxray.NewConfigGenerator()

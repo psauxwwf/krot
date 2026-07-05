@@ -1,15 +1,13 @@
 package loader
 
 import (
-	"bufio"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"slices"
-	"strings"
 	"time"
 
+	"krot/internal/lineio"
 	"krot/pkg/env"
 )
 
@@ -26,6 +24,7 @@ func Load(urls ...string) ([]string, error) {
 
 	var (
 		client     = &http.Client{Timeout: loadTimeout}
+		seen       = make(map[string]struct{})
 		result     = make([]string, 0)
 		failedURLs = make([]string, 0)
 		ok         int
@@ -43,7 +42,7 @@ func Load(urls ...string) ([]string, error) {
 	}
 
 	for _, sourceURL := range urls {
-		lines, err := loadSource(client, sourceURL)
+		lines, err := loadSource(client, sourceURL, seen)
 		if err != nil {
 			fail++
 			failedURLs = append(failedURLs, sourceURL)
@@ -53,10 +52,7 @@ func Load(urls ...string) ([]string, error) {
 		}
 
 		for _, line := range lines {
-			if slices.Contains(result, line) {
-				continue
-			}
-			result = append(result, line)
+			result = append(result, line.Text)
 		}
 		ok++
 		printProgress()
@@ -77,7 +73,7 @@ func Load(urls ...string) ([]string, error) {
 	return result, nil
 }
 
-func loadSource(client *http.Client, sourceURL string) ([]string, error) {
+func loadSource(client *http.Client, sourceURL string, seen map[string]struct{}) ([]lineio.Line, error) {
 	slog.Debug("loading source", "url", sourceURL)
 
 	req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
@@ -96,25 +92,7 @@ func loadSource(client *http.Client, sourceURL string) ([]string, error) {
 		return nil, fmt.Errorf("failed to load %s: status %s", sourceURL, resp.Status)
 	}
 
-	lines := make([]string, 0)
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		if slices.Contains(lines, line) {
-			continue
-		}
-
-		lines = append(lines, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", sourceURL, err)
-	}
-	return lines, nil
+	return lineio.Read(resp.Body, sourceURL, lineio.Options{Seen: seen})
 }
 
 func Save(out string, urls []string) error {
