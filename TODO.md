@@ -5,3 +5,9 @@
       Проблема в том что у него задан в go.mod `module xray-checker`
       Возможно это можно победить через go mod vendor - при это править исходники в ./vendor/ - нельзя
       Возможно тебе поможет //go:linkname или что-то подобное
+- [x] Убери именнованные импорты и сделай их обычными
+      checkerlogger "github.com/kutovoys/xray-checker/logger"
+      checkermodels "github.com/kutovoys/xray-checker/models"
+      checkersubscription "github.com/kutovoys/xray-checker/subscription"
+      checkerxray "github.com/kutovoys/xray-checker/xray"
+- [ ] tag в psauxwwf/xray-checker и kutovoys/xray-checker должен быть синхронизирован сейчас там последний тег v1.3.1

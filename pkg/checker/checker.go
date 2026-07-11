@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	checkerlogger "github.com/kutovoys/xray-checker/logger"
-	checkermodels "github.com/kutovoys/xray-checker/models"
-	checkersubscription "github.com/kutovoys/xray-checker/subscription"
-	checkerxray "github.com/kutovoys/xray-checker/xray"
+	"github.com/kutovoys/xray-checker/logger"
+	"github.com/kutovoys/xray-checker/models"
+	"github.com/kutovoys/xray-checker/subscription"
+	"github.com/kutovoys/xray-checker/xray"
 
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf/serial"
@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	checkerlogger.SetLevel(checkerlogger.LevelNone)
+	logger.SetLevel(logger.LevelNone)
 }
 
 var parserOutputMu sync.Mutex
@@ -37,7 +37,7 @@ const (
 )
 
 type config struct {
-	proxy *checkermodels.ProxyConfig
+	proxy *models.ProxyConfig
 }
 
 func Check(rawURI string, timeout time.Duration, parseOnly bool) error {
@@ -120,8 +120,8 @@ func buildXrayConfig(xrayConfig config, socksPort int) ([]byte, error) {
 	proxyConfig := *xrayConfig.proxy
 	proxyConfig.Index = 0
 
-	generator := checkerxray.NewConfigGenerator()
-	configBytes, err := generator.GenerateConfig([]*checkermodels.ProxyConfig{&proxyConfig}, socksPort, "none")
+	generator := xray.NewConfigGenerator()
+	configBytes, err := generator.GenerateConfig([]*models.ProxyConfig{&proxyConfig}, socksPort, "none")
 	if err != nil {
 		return nil, fmt.Errorf("generate xray config: %w", err)
 	}
@@ -226,7 +226,7 @@ func getFreeTCPPort() (int, error) {
 }
 
 func parse(rawURI string) (config, error) {
-	parser := checkersubscription.NewParser()
+	parser := subscription.NewParser()
 
 	result, err := parseQuiet(parser, strings.TrimSpace(rawURI))
 	if err != nil {
@@ -247,7 +247,7 @@ func parse(rawURI string) (config, error) {
 	return config{proxy: proxyConfig}, nil
 }
 
-func parseQuiet(parser *checkersubscription.Parser, rawURI string) (*checkersubscription.ParseResult, error) {
+func parseQuiet(parser *subscription.Parser, rawURI string) (*subscription.ParseResult, error) {
 	parserOutputMu.Lock()
 	defer parserOutputMu.Unlock()
 

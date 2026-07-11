@@ -30,3 +30,11 @@
 - Все импорты `"xray-checker/..."` переписаны на полный GitHub-путь (17 файлов).
 - Удалены `.github/ISSUE_TEMPLATE/🐞-bug-report.md` и
   `.github/ISSUE_TEMPLATE/💡-feature-request.md` (emoji в именах ломает zip модуля).
+
+## Убраны именованные импорты xray-checker
+
+В `pkg/checker/checker.go` убраны псевдонимы импортов (`checkerlogger`,
+`checkermodels`, `checkersubscription`, `checkerxray`) — теперь используются
+обычные имена пакетов (`logger`, `models`, `subscription`, `xray`). Все
+места использования обновлены. Поведение не изменилось; `gofmt`, `go build`,
+`go vet` — чисто.
