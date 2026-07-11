@@ -10,4 +10,4 @@
       checkermodels "github.com/kutovoys/xray-checker/models"
       checkersubscription "github.com/kutovoys/xray-checker/subscription"
       checkerxray "github.com/kutovoys/xray-checker/xray"
-- [ ] tag в psauxwwf/xray-checker и kutovoys/xray-checker должен быть синхронизирован сейчас там последний тег v1.3.1
+- [x] tag в psauxwwf/xray-checker и kutovoys/xray-checker должен быть синхронизирован сейчас там последний тег v1.3.1
