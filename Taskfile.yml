@@ -34,21 +34,6 @@ tasks:
     run: once
     cmds:
       - mkdir -p {{.bin}}
-      - task: setup:xray-checker
-
-  setup:xray-checker:
-    desc: prepare local xray-checker module
-    internal: true
-    run: once
-    status:
-      - test -d xray-checker
-      - grep -q '^module github.com/kutovoys/xray-checker$' xray-checker/go.mod
-      - '! grep -R --include=''*.go'' -q ''"xray-checker/'' xray-checker'
-    cmds:
-      - test -d xray-checker || git clone https://github.com/kutovoys/xray-checker
-      - sed -i 's|^module xray-checker$|module github.com/kutovoys/xray-checker|' xray-checker/go.mod
-      - grep -R -l --include='*.go' '"xray-checker/' xray-checker | xargs -r sed -i 's|"xray-checker/|"github.com/kutovoys/xray-checker/|g'
-
   setup:android-ndk:
     desc: install Android NDK r27
     internal: true

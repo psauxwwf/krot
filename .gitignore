@@ -11,10 +11,10 @@ opensrc/
 /security-reports
 /mtproto.txt
 /vless.txt
-/xray-checker
 /bak
 /mtproto.bak.txt
 /vless.bak.txt
 /main.py
 /urls.yaml
 /vless_small.txt
+/.opencode/plans

@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/charmbracelet/fang v1.0.0
 	github.com/gotd/td v0.142.0
-	github.com/kutovoys/xray-checker v0.0.0
+	github.com/kutovoys/xray-checker v1.3.3
 	github.com/spf13/cobra v1.10.1
 	github.com/xtls/xray-core v1.260327.1-0.20260627131803-45cf2898ab12
 	golang.org/x/net v0.56.0
@@ -106,6 +106,6 @@ require (
 	rsc.io/qr v0.2.0 // indirect
 )
 
-replace github.com/kutovoys/xray-checker => ./xray-checker
+replace github.com/kutovoys/xray-checker => github.com/psauxwwf/xray-checker v1.3.3
 
 replace github.com/wlynxg/anet => ./third_party/anet
